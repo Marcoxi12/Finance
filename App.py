@@ -601,10 +601,19 @@ with st.sidebar:
     else:
         st.caption("No files loaded yet")
 
-    raw = load_all_data()
     if raw is None or len(raw) == 0:
         st.warning("No data loaded yet. Upload a GL export to begin.")
         st.stop()
+
+    # Extract and add company from filename
+    from pathlib import Path as PathlibPath
+    def extract_company_from_filename(filename):
+        filename_upper = str(filename).upper()
+        if "40ACR" in filename_upper:
+            return "40ACR"
+        elif "FAEII" in filename_upper:
+            return "FAEII"
+        return "Unknown"
 
     df = raw.copy()
     df = ensure_columns(
@@ -617,6 +626,7 @@ with st.sidebar:
             "Account": 0,
             "AccountDesc": "",
             "AmountAdj": 0.0,
+            "Company": "Unknown",
         },
     )
 
@@ -629,11 +639,23 @@ with st.sidebar:
 
     st.markdown('<div class="sb-section">Company Selection</div>', unsafe_allow_html=True)
     
-    all_companies = ["40ACR", "FAEII"]
+    # Get companies from loaded files
+    available_companies = []
+    meta_file = Path("data/uploaded_files.json")
+    if meta_file.exists():
+        try:
+            meta = json.loads(meta_file.read_text())
+            available_companies = sorted(list(set([f.get("company", "Unknown") for f in meta.get("files", []) if f.get("company")])))
+        except Exception:
+            available_companies = []
+    
+    if not available_companies:
+        available_companies = ["40ACR", "FAEII"]
+    
     sel_companies = st.multiselect(
         "Companies",
-        options=all_companies,
-        default=all_companies,
+        options=available_companies,
+        default=available_companies,
         placeholder="Select companies",
         label_visibility="collapsed",
     )
@@ -694,6 +716,8 @@ with st.sidebar:
 # FILTERED DATA / MODEL FRAMES
 # =============================================================================
 dff = df.copy()
+if sel_companies:
+    dff = dff[dff["Company"].isin(sel_companies)]
 if sel_subaccts:
     dff = dff[dff["SubAcctNum"].isin(sel_subaccts)]
 if sel_wells:
@@ -900,14 +924,7 @@ kpi_specs = [
 cards_html = '<div class="kpi-wrap"><div class="kpi-grid">'
 for label, val, delta_block, note, klass, raw in kpi_specs:
     neg_cls = " neg" if raw < 0 and label not in {"Deduction Rate", "LOE / BOE"} else ""
-    cards_html += f"""
-    <div class="kpi-card {klass}">
-        <div class="kpi-label">{label}</div>
-        <div class="kpi-value{neg_cls}">{val}</div>
-        {delta_block}
-        <div class="kpi-note">{note}</div>
-    </div>
-    """
+    cards_html += f'<div class="kpi-card {klass}"><div class="kpi-label">{label}</div><div class="kpi-value{neg_cls}">{val}</div><div class="kpi-delta neu">—</div><div class="kpi-note">{note}</div></div>'
 cards_html += "</div></div>"
 st.markdown(cards_html, unsafe_allow_html=True)
 
@@ -1603,7 +1620,7 @@ with tab_pl:
         with wf_col1:
             wf_period = st.selectbox(
                 "Period",
-                months_sorted[::-1] if months_sorted else ["—"],
+                ["All periods"] + (months_sorted[::-1] if months_sorted else ["—"]),
                 key="pl_wf_period",
             )
         with wf_col2:
@@ -1623,13 +1640,20 @@ with tab_pl:
                 st.warning("No wells available")
         
         if wf_level == "Single Well" and wf_well:
-            well_data = summary[(summary["Period"].eq(wf_period)) & (summary["Well"].eq(wf_well))].copy()
-            well_exp = exp_summary[(exp_summary["Period"].eq(wf_period)) & (exp_summary["Well"].eq(wf_well))].copy()
+            if wf_period == "All periods":
+                well_data = summary[(summary["Well"].eq(wf_well))].copy()
+            else:
+                well_data = summary[(summary["Period"].eq(wf_period)) & (summary["Well"].eq(wf_well))].copy()
+            
+            well_exp = exp_summary[(exp_summary["Well"].eq(wf_well))].copy() if wf_period == "All periods" else exp_summary[(exp_summary["Period"].eq(wf_period)) & (exp_summary["Well"].eq(wf_well))].copy()
             
             if well_data.empty:
-                st.info(f"No data for {wf_well} in {wf_period}")
+                st.info(f"No data for {wf_well}" + (f" in {wf_period}" if wf_period != "All periods" else ""))
             else:
-                row = well_data.iloc[0]
+                # Aggregate across all rows
+                gross_rev = float(well_data["Gross_Revenue"].sum())
+                total_ded = float(well_data["Total_Deductions"].sum())
+                net_rev = float(well_data["Net_Revenue"].sum())
                 loe = well_exp.loc[well_exp["Bucket"].eq("LOE"), "Amount"].sum() if not well_exp.empty else 0.0
                 workover = well_exp.loc[well_exp["Bucket"].eq("Workover"), "Amount"].sum() if not well_exp.empty else 0.0
                 leasehold = well_exp.loc[well_exp["Bucket"].eq("Leasehold"), "Amount"].sum() if not well_exp.empty else 0.0
@@ -1637,17 +1661,18 @@ with tab_pl:
                 
                 labels = ["Gross Revenue", "Deductions", "Net Revenue", "LOE", "Workover", "Leasehold", "Capital", "Net Income"]
                 values = [
-                    float(row["Gross_Revenue"]),
-                    -float(row["Total_Deductions"]),
-                    float(row["Net_Revenue"]),
+                    gross_rev,
+                    -total_ded,
+                    net_rev,
                     -loe,
                     -workover,
                     -leasehold,
                     -capital,
-                    float(row["Net_Revenue"]) - loe - workover - leasehold - capital,
+                    net_rev - loe - workover - leasehold - capital,
                 ]
                 
-                add_panel(f"P&L Waterfall — {wf_well} ({wf_period})", "From gross revenue to bottom-line net income", "purple")
+                period_label = wf_period if wf_period != "All periods" else "All Periods"
+                add_panel(f"P&L Waterfall — {wf_well} ({period_label})", "From gross revenue to bottom-line net income", "purple")
                 fig9 = go.Figure(
                     go.Waterfall(
                         x=labels,
@@ -1667,42 +1692,79 @@ with tab_pl:
                 st.plotly_chart(fig9, use_container_width=True)
                 close_panel()
         else:
-            row = pl.loc[pl["Period"].eq(wf_period)].copy() if not pl.empty else pd.DataFrame()
-            if row.empty:
-                st.info("No P&L data is available for the selected period.")
-            else:
-                r = row.iloc[0]
-                labels = ["Gross Revenue", "Deductions", "Net Revenue", "LOE", "Workover", "Leasehold", "Capital", "Net Income"]
-                measures = ["absolute", "relative", "total", "relative", "relative", "relative", "relative", "total"]
-                values = [
-                    float(r["Gross"]),
-                    -float(r["Deductions"]),
-                    float(r["Net_Rev"]),
-                    -float(r["LOE"]),
-                    -float(r["Workover"]),
-                    -float(r["Leasehold"]),
-                    -float(r["Capital"]),
-                    float(r["Net_Income"]),
-                ]
-                add_panel("P&L Waterfall (Portfolio View)", "From gross revenue to bottom-line net income across all selected assets", "purple")
-                fig9 = go.Figure(
-                    go.Waterfall(
-                        x=labels,
-                        y=values,
-                        measure=measures,
-                        connector=dict(line=dict(color="#94a3b8")),
-                        increasing=dict(marker=dict(color=C["green"])),
-                        decreasing=dict(marker=dict(color=C["red"])),
-                        totals=dict(marker=dict(color=C["purple"])),
-                        text=[fmt_currency(v) for v in values],
-                        textposition="outside",
-                        hovertemplate="%{x}: $%{y:,.0f}<extra></extra>",
+            if wf_period == "All periods":
+                row_data = pl.copy()
+                if row_data.empty:
+                    st.info("No P&L data available")
+                else:
+                    r_gross = float(row_data["Gross"].sum())
+                    r_ded = float(row_data["Deductions"].sum())
+                    r_net = float(row_data["Net_Rev"].sum())
+                    r_loe = float(row_data["LOE"].sum())
+                    r_workover = float(row_data["Workover"].sum())
+                    r_leasehold = float(row_data["Leasehold"].sum())
+                    r_capital = float(row_data["Capital"].sum())
+                    r_ni = float(row_data["Net_Income"].sum())
+                    
+                    labels = ["Gross Revenue", "Deductions", "Net Revenue", "LOE", "Workover", "Leasehold", "Capital", "Net Income"]
+                    values = [r_gross, -r_ded, r_net, -r_loe, -r_workover, -r_leasehold, -r_capital, r_ni]
+                    
+                    add_panel("P&L Waterfall (Portfolio View — All Periods)", "Aggregate P&L across all selected assets and months", "purple")
+                    fig9 = go.Figure(
+                        go.Waterfall(
+                            x=labels,
+                            y=values,
+                            measure=["absolute", "relative", "total", "relative", "relative", "relative", "relative", "total"],
+                            connector=dict(line=dict(color="#94a3b8")),
+                            increasing=dict(marker=dict(color=C["green"])),
+                            decreasing=dict(marker=dict(color=C["red"])),
+                            totals=dict(marker=dict(color=C["purple"])),
+                            text=[fmt_currency(v) for v in values],
+                            textposition="outside",
+                            hovertemplate="%{x}: $%{y:,.0f}<extra></extra>",
+                        )
                     )
-                )
-                fig9.update_layout(**plot_layout(height=440, yaxis=dict(tickprefix="$", tickformat=",.0f")))
-                style_axes(fig9)
-                st.plotly_chart(fig9, use_container_width=True)
-                close_panel()
+                    fig9.update_layout(**plot_layout(height=440, yaxis=dict(tickprefix="$", tickformat=",.0f")))
+                    style_axes(fig9)
+                    st.plotly_chart(fig9, use_container_width=True)
+                    close_panel()
+            else:
+                row = pl.loc[pl["Period"].eq(wf_period)].copy() if not pl.empty else pd.DataFrame()
+                if row.empty:
+                    st.info("No P&L data is available for the selected period.")
+                else:
+                    r = row.iloc[0]
+                    labels = ["Gross Revenue", "Deductions", "Net Revenue", "LOE", "Workover", "Leasehold", "Capital", "Net Income"]
+                    measures = ["absolute", "relative", "total", "relative", "relative", "relative", "relative", "total"]
+                    values = [
+                        float(r["Gross"]),
+                        -float(r["Deductions"]),
+                        float(r["Net_Rev"]),
+                        -float(r["LOE"]),
+                        -float(r["Workover"]),
+                        -float(r["Leasehold"]),
+                        -float(r["Capital"]),
+                        float(r["Net_Income"]),
+                    ]
+                    add_panel("P&L Waterfall (Portfolio View)", "From gross revenue to bottom-line net income across all selected assets", "purple")
+                    fig9 = go.Figure(
+                        go.Waterfall(
+                            x=labels,
+                            y=values,
+                            measure=measures,
+                            connector=dict(line=dict(color="#94a3b8")),
+                            increasing=dict(marker=dict(color=C["green"])),
+                            decreasing=dict(marker=dict(color=C["red"])),
+                            totals=dict(marker=dict(color=C["purple"])),
+                            text=[fmt_currency(v) for v in values],
+                            textposition="outside",
+                            hovertemplate="%{x}: $%{y:,.0f}<extra></extra>",
+                        )
+                    )
+                    fig9.update_layout(**plot_layout(height=440, yaxis=dict(tickprefix="$", tickformat=",.0f")))
+                    style_axes(fig9)
+                    st.plotly_chart(fig9, use_container_width=True)
+                    close_panel()
 
     with pl_t3:
         metric = st.selectbox(
