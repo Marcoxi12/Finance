@@ -1,1389 +1,1766 @@
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from data_loader import (
-    load_all_data, get_summary, get_expense_summary,
-    get_expense_detail, ingest_file,
-)
 
+from data_loader import load_all_data, get_summary, get_expense_summary, ingest_file
+
+
+# =============================================================================
+# PAGE CONFIG
+# =============================================================================
 st.set_page_config(
-    page_title="Integrated P&L · FP&A Console",
-    page_icon="▣",
+    page_title="P&L Command Center",
+    page_icon="◼",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-st.markdown("""
+
+# =============================================================================
+# STYLING
+# =============================================================================
+st.markdown(
+    """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 html, body, [class*="css"], .stApp {
     font-family: 'Inter', sans-serif !important;
 }
-.stApp { background: #f0f2f5; }
-.main .block-container { padding: 0 !important; max-width: 100% !important; }
-
-/* ── SIDEBAR ── */
-[data-testid="stSidebar"], [data-testid="stSidebar"] > div,
-[data-testid="stSidebar"] > div > div,
-section[data-testid="stSidebar"],
-.st-emotion-cache-1d391kg, .st-emotion-cache-6qob1r,
-.st-emotion-cache-eczf1x,  .st-emotion-cache-1gwvy71,
-.st-emotion-cache-16txtl3, .st-emotion-cache-qrbaxs {
-    background: #08111f !important;
-    background-color: #08111f !important;
+.stApp {
+    background:
+        radial-gradient(circle at top left, rgba(24,56,112,0.12), transparent 30%),
+        linear-gradient(180deg, #f6f8fc 0%, #eef2f7 100%);
 }
-[data-testid="stSidebar"] { border-right: 1px solid #162035 !important; }
-[data-testid="stSidebar"] * { color: #7a93b4 !important; }
-[data-testid="stSidebar"] p, [data-testid="stSidebar"] label { font-size: 11px !important; }
-[data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"],
-[data-testid="stSidebar"] [data-testid="stFileUploader"] section {
-    background: #0f1e35 !important; border: 1px dashed #1e3a5f !important; border-radius: 4px !important;
+.main .block-container {
+    max-width: 100% !important;
+    padding: 0 0 2rem 0 !important;
 }
-[data-testid="stSidebar"] [data-baseweb="select"] > div {
-    background: #0f1e35 !important; border: 1px solid #1e3a5f !important; color: #a8c4e0 !important;
+[data-testid="stSidebar"], [data-testid="stSidebar"] > div {
+    background: linear-gradient(180deg, #07111f 0%, #0c1728 100%) !important;
+    border-right: 1px solid #18263d !important;
 }
-[data-testid="stSidebar"] [data-baseweb="tag"] { background: #122a4a !important; border: 1px solid #1e4878 !important; }
+[data-testid="stSidebar"] * {
+    color: #a4b4cf !important;
+}
+[data-testid="stSidebar"] .stMarkdown p {
+    color: #7f93b4 !important;
+}
+[data-testid="stSidebar"] [data-baseweb="select"] > div,
+[data-testid="stSidebar"] [data-testid="stFileUploader"] section,
+[data-testid="stSidebar"] .stMultiSelect [data-baseweb="tag"] {
+    background: #122038 !important;
+    border-color: #233757 !important;
+}
 [data-testid="stSidebar"] button {
-    background: #0f1e35 !important; border: 1px solid #1e3a5f !important;
-    color: #7a93b4 !important; border-radius: 3px !important;
+    background: #122038 !important;
+    border: 1px solid #233757 !important;
+    border-radius: 8px !important;
 }
-[data-testid="stSidebar"] hr { border-color: #162035 !important; }
-[data-testid="stSidebar"] [data-baseweb="select"] svg { fill: #2e5080 !important; }
-
-.sb-logo { display:flex; align-items:center; gap:10px; padding:18px 0 16px; border-bottom:1px solid #162035; margin-bottom:6px; }
-.sb-logo-box {
-    width:32px; height:32px; background:linear-gradient(135deg,#1040a8,#1a56db);
-    border-radius:4px; display:flex; align-items:center; justify-content:center;
-    font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:700; color:#fff !important;
+[data-testid="stSidebar"] hr {
+    border-color: #1b2b45 !important;
 }
-.sb-logo-name { font-size:13px !important; font-weight:700 !important; color:#dce8f8 !important; letter-spacing:-0.2px; }
-.sb-logo-sub  { font-size:9px !important; color:#2a4060 !important; font-family:'JetBrains Mono',monospace; letter-spacing:0.12em; text-transform:uppercase; }
-.sb-section   { font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.16em; text-transform:uppercase; color:#2a4060 !important; padding:16px 0 6px; border-bottom:1px solid #162035; margin-bottom:10px; }
-.sb-label     { color:#3d5a7a !important; font-size:9px; letter-spacing:0.1em; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace; }
-.sb-stat      { font-size:10px !important; color:#2a4060 !important; font-family:'JetBrains Mono',monospace; }
-
-/* ── HEADER ── */
-.ent-header {
-    background:linear-gradient(135deg,#040c1a 0%,#081428 50%,#0a1c3a 100%);
-    border-bottom:2px solid #1040a8;
-    padding:22px 36px 18px; display:flex; align-items:flex-end; justify-content:space-between;
+.sidebar-brand {
+    display:flex;
+    gap:12px;
+    align-items:center;
+    padding: 16px 0 18px 0;
+    border-bottom:1px solid #1b2b45;
+    margin-bottom:16px;
 }
-.ent-breadcrumb { font-family:'JetBrains Mono',monospace; font-size:9px; letter-spacing:0.18em; text-transform:uppercase; color:#2a4060; margin-bottom:6px; }
-.ent-title { font-size:20px; font-weight:300; color:#dce8f8; letter-spacing:-0.4px; }
-.ent-title strong { font-weight:700; color:#ffffff; }
-.ent-header-right { display:flex; align-items:center; gap:12px; }
-.ent-badge {
-    background:rgba(16,64,168,0.15); border:1px solid #1e3a6a; border-radius:3px;
-    padding:6px 16px; font-family:'JetBrains Mono',monospace; font-size:10px; color:#4a6a9a;
+.sidebar-brand-box {
+    width:38px;
+    height:38px;
+    border-radius:10px;
+    background: linear-gradient(135deg,#1d4ed8,#60a5fa);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:#fff !important;
+    font-weight:800;
+    box-shadow: 0 8px 18px rgba(29,78,216,0.28);
 }
-.ent-badge strong { color:#7aaee8; font-weight:500; }
-.ent-badge.live { border-color:#0e7c4a; background:rgba(14,159,110,0.1); }
-.ent-badge.live strong { color:#0e9f6e; }
-
-/* ── KPI STRIP ── */
-.kpi-strip { background:#ffffff; border-bottom:1px solid #d4d9e8; display:flex; box-shadow:0 1px 4px rgba(0,0,0,0.06); }
-.kpi-item  { flex:1; padding:16px 20px 14px; border-right:1px solid #e8ebf5; position:relative; }
-.kpi-item:last-child { border-right:none; }
-.kpi-item::after { content:''; position:absolute; top:0; left:0; right:0; height:2px; }
-.kpi-item.c-blue::after   { background:linear-gradient(90deg,#1040a8,#1a56db); }
-.kpi-item.c-green::after  { background:linear-gradient(90deg,#047857,#0e9f6e); }
-.kpi-item.c-amber::after  { background:linear-gradient(90deg,#92400e,#c27803); }
-.kpi-item.c-purple::after { background:linear-gradient(90deg,#4c1d95,#6c2bd9); }
-.kpi-item.c-red::after    { background:linear-gradient(90deg,#991b1b,#e02424); }
-.kpi-item.c-teal::after   { background:linear-gradient(90deg,#065f6e,#0694a2); }
-.kpi-item.c-indigo::after { background:linear-gradient(90deg,#312e81,#4338ca); }
-.kpi-item.c-rose::after   { background:linear-gradient(90deg,#9f1239,#e11d48); }
-.kpi-lbl  { font-family:'JetBrains Mono',monospace; font-size:8.5px; letter-spacing:0.14em; text-transform:uppercase; color:#8090aa; margin-bottom:5px; }
-.kpi-val  { font-size:22px; font-weight:600; color:#0d1424; letter-spacing:-0.8px; line-height:1.1; margin-bottom:4px; }
-.kpi-val.neg { color:#c81e1e; }
-.kpi-delta     { font-family:'JetBrains Mono',monospace; font-size:9.5px; }
-.kpi-delta.pos { color:#0e9f6e; }
-.kpi-delta.neg { color:#e02424; }
-.kpi-delta.neu { color:#9aa4b8; }
-.kpi-sub { font-family:'JetBrains Mono',monospace; font-size:9px; color:#b0bbd4; margin-top:2px; }
-
-/* ── TABS ── */
+.sidebar-brand-title {
+    font-size:14px;
+    font-weight:700;
+    color:#e7eefb !important;
+}
+.sidebar-brand-sub {
+    font-family:'JetBrains Mono', monospace;
+    font-size:9px;
+    letter-spacing:0.14em;
+    text-transform:uppercase;
+    color:#5e7499 !important;
+}
+.sb-section {
+    font-family:'JetBrains Mono', monospace;
+    font-size:10px;
+    letter-spacing:0.14em;
+    text-transform:uppercase;
+    color:#6780a8 !important;
+    margin: 14px 0 8px 0;
+}
+.header-shell {
+    background:
+        radial-gradient(circle at top right, rgba(59,130,246,0.14), transparent 28%),
+        linear-gradient(135deg, #081120 0%, #0b1730 52%, #102246 100%);
+    border-bottom: 1px solid #173158;
+    padding: 28px 34px 22px 34px;
+    box-shadow: 0 10px 30px rgba(8,17,32,0.16);
+}
+.header-kicker {
+    font-family:'JetBrains Mono', monospace;
+    font-size:10px;
+    letter-spacing:0.16em;
+    text-transform:uppercase;
+    color:#6f8ec2;
+    margin-bottom:8px;
+}
+.header-row {
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    gap:24px;
+}
+.header-title {
+    font-size:28px;
+    font-weight:300;
+    color:#eaf1ff;
+    letter-spacing:-0.03em;
+}
+.header-title strong {
+    font-weight:800;
+    color:#ffffff;
+}
+.header-sub {
+    font-size:13px;
+    color:#90a7cc;
+    margin-top:6px;
+}
+.badge-row {
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    justify-content:flex-end;
+}
+.h-badge {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(111,142,194,0.24);
+    border-radius: 999px;
+    padding: 8px 14px;
+    color:#a8bddf;
+    font-family:'JetBrains Mono', monospace;
+    font-size:10px;
+}
+.h-badge strong {
+    color:#e8f0ff;
+    font-weight:600;
+}
+.h-badge.live strong {
+    color:#52d6a3;
+}
+.kpi-wrap {
+    padding: 18px 26px 0 26px;
+}
+.kpi-grid {
+    display:grid;
+    grid-template-columns: repeat(8, minmax(0,1fr));
+    gap:12px;
+}
+@media (max-width: 1600px) {
+    .kpi-grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
+}
+@media (max-width: 900px) {
+    .kpi-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
+.kpi-card {
+    background: rgba(255,255,255,0.88);
+    backdrop-filter: blur(10px);
+    border: 1px solid #dfe6f3;
+    border-top: 3px solid #1d4ed8;
+    border-radius: 16px;
+    padding: 16px 16px 14px 16px;
+    box-shadow: 0 10px 26px rgba(22,35,67,0.06);
+}
+.kpi-card.green { border-top-color:#059669; }
+.kpi-card.red { border-top-color:#dc2626; }
+.kpi-card.amber { border-top-color:#d97706; }
+.kpi-card.purple { border-top-color:#7c3aed; }
+.kpi-card.teal { border-top-color:#0f766e; }
+.kpi-label {
+    font-family:'JetBrains Mono', monospace;
+    font-size:9px;
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+    color:#7b8da9;
+    margin-bottom:8px;
+}
+.kpi-value {
+    font-size:24px;
+    font-weight:750;
+    letter-spacing:-0.04em;
+    color:#0f172a;
+    line-height:1.05;
+}
+.kpi-value.neg { color:#b91c1c; }
+.kpi-delta {
+    font-family:'JetBrains Mono', monospace;
+    font-size:10px;
+    margin-top:8px;
+}
+.kpi-delta.pos { color:#059669; }
+.kpi-delta.neg { color:#dc2626; }
+.kpi-delta.neu { color:#94a3b8; }
+.kpi-note {
+    font-family:'JetBrains Mono', monospace;
+    font-size:9px;
+    color:#9aa8bd;
+    margin-top:5px;
+}
 .stTabs [data-baseweb="tab-list"] {
-    background:#ffffff !important; border-bottom:1px solid #d4d9e8 !important;
-    padding:0 36px !important; gap:0 !important; box-shadow:0 1px 3px rgba(0,0,0,0.04);
+    background: rgba(255,255,255,0.85) !important;
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid #dbe3f1 !important;
+    padding: 0 28px !important;
+    gap: 0 !important;
 }
 .stTabs [data-baseweb="tab"] {
-    background:transparent !important; border:none !important;
-    border-bottom:2px solid transparent !important; padding:14px 22px !important;
-    font-family:'Inter',sans-serif !important; font-size:12px !important;
-    font-weight:500 !important; color:#8090aa !important; margin-bottom:-1px !important;
-    border-radius:0 !important; letter-spacing:0.01em;
+    height: 52px !important;
+    padding: 0 18px !important;
+    color:#70839f !important;
+    font-weight:600 !important;
+    border-bottom: 2px solid transparent !important;
 }
-.stTabs [aria-selected="true"] { color:#1040a8 !important; border-bottom-color:#1040a8 !important; font-weight:600 !important; }
-.stTabs [data-baseweb="tab-panel"] { padding:24px 36px !important; background:#f0f2f5; }
-
-/* ── PANELS ── */
+.stTabs [aria-selected="true"] {
+    color:#1d4ed8 !important;
+    border-bottom-color:#1d4ed8 !important;
+}
+.stTabs [data-baseweb="tab-panel"] {
+    padding: 22px 28px 10px 28px !important;
+}
 .panel {
-    background:#fff; border:1px solid #d4d9e8; border-top:2px solid #1040a8;
-    border-radius:0 0 6px 6px; padding:20px 24px 24px; margin-bottom:16px;
-    box-shadow:0 1px 4px rgba(0,0,0,0.05);
+    background: rgba(255,255,255,0.92);
+    backdrop-filter: blur(10px);
+    border:1px solid #dfe6f3;
+    border-radius:18px;
+    padding:18px 20px 16px 20px;
+    margin-bottom:16px;
+    box-shadow: 0 10px 30px rgba(20,31,56,0.05);
 }
-.panel.red    { border-top-color:#c81e1e; }
-.panel.amber  { border-top-color:#c27803; }
-.panel.green  { border-top-color:#047857; }
-.panel.teal   { border-top-color:#0694a2; }
-.panel.purple { border-top-color:#6c2bd9; }
-.panel.indigo { border-top-color:#4338ca; }
-.panel-title  { font-size:13px; font-weight:600; color:#0d1424; margin-bottom:2px; letter-spacing:-0.1px; }
-.panel-sub    { font-family:'JetBrains Mono',monospace; font-size:8.5px; letter-spacing:0.12em; text-transform:uppercase; color:#b0bbd4; margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid #eef0f6; }
-
-/* ── SUMMARY ROWS ── */
-.sum-row  { display:flex; gap:10px; margin:16px 0 4px; }
-.sum-cell {
-    flex:1; background:#f7f8fc; border:1px solid #d4d9e8;
-    border-left:2px solid #1040a8; padding:12px 16px;
-    border-radius:0 4px 4px 0;
+.panel.red { border-top:3px solid #dc2626; }
+.panel.blue { border-top:3px solid #1d4ed8; }
+.panel.green { border-top:3px solid #059669; }
+.panel.purple { border-top:3px solid #7c3aed; }
+.panel.amber { border-top:3px solid #d97706; }
+.panel.teal { border-top:3px solid #0f766e; }
+.panel-title {
+    font-size:15px;
+    font-weight:750;
+    color:#0f172a;
+    margin-bottom:4px;
 }
-.sum-cell.green  { border-left-color:#047857; }
-.sum-cell.amber  { border-left-color:#c27803; }
-.sum-cell.red    { border-left-color:#c81e1e; }
-.sum-cell.teal   { border-left-color:#0694a2; }
-.sum-cell.purple { border-left-color:#6c2bd9; }
-.sum-cell.indigo { border-left-color:#4338ca; }
-.sum-cell.gray   { border-left-color:#6b7a99; }
-.sum-lbl  { font-family:'JetBrains Mono',monospace; font-size:8.5px; letter-spacing:0.12em; text-transform:uppercase; color:#8090aa; margin-bottom:4px; }
-.sum-val  { font-size:17px; font-weight:600; color:#0d1424; letter-spacing:-0.4px; }
-.sum-val.neg { color:#c81e1e; }
-.sum-note { font-family:'JetBrains Mono',monospace; font-size:8.5px; color:#b0bbd4; margin-top:3px; }
-
-/* ── FPA INSIGHT BOXES ── */
-.insight-row { display:flex; gap:10px; margin:12px 0; }
-.insight-box {
-    flex:1; background:linear-gradient(135deg,#f7f8fc,#eef0f6);
-    border:1px solid #d4d9e8; border-radius:4px; padding:12px 16px;
+.panel-sub {
+    font-family:'JetBrains Mono', monospace;
+    font-size:9px;
+    text-transform:uppercase;
+    letter-spacing:0.12em;
+    color:#90a0b8;
+    padding-bottom:12px;
+    border-bottom:1px solid #edf2f7;
+    margin-bottom:14px;
 }
-.insight-box.warn { background:linear-gradient(135deg,#fffbeb,#fef3c7); border-color:#f59e0b; }
-.insight-box.good { background:linear-gradient(135deg,#ecfdf5,#d1fae5); border-color:#059669; }
-.insight-box.bad  { background:linear-gradient(135deg,#fff5f5,#fee2e2); border-color:#dc2626; }
-.insight-label { font-family:'JetBrains Mono',monospace; font-size:8px; letter-spacing:0.14em; text-transform:uppercase; color:#8090aa; margin-bottom:4px; }
-.insight-val   { font-size:18px; font-weight:700; color:#0d1424; letter-spacing:-0.5px; }
-.insight-val.red { color:#c81e1e; }
-.insight-val.green { color:#047857; }
-.insight-note  { font-size:11px; color:#6b7a99; margin-top:3px; }
-
-/* ── WATERFALL LEGEND ── */
-.wf-legend { display:flex; gap:16px; margin-bottom:10px; flex-wrap:wrap; }
-.wf-leg-item { display:flex; align-items:center; gap:5px; font-family:'JetBrains Mono',monospace; font-size:9px; color:#6b7a99; }
-.wf-leg-dot  { width:10px; height:10px; border-radius:2px; }
-
-div[data-testid="metric-container"] { display:none; }
-.stExpander { background:#fff !important; border:1px solid #d4d9e8 !important; border-radius:4px !important; }
+.callout-grid {
+    display:grid;
+    grid-template-columns: repeat(4, minmax(0,1fr));
+    gap:12px;
+    margin-top:6px;
+    margin-bottom:10px;
+}
+@media (max-width: 1400px) {
+    .callout-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
+.callout {
+    border:1px solid #dfe6f3;
+    border-radius:14px;
+    padding:12px 14px;
+    background: linear-gradient(180deg, #fbfdff 0%, #f5f8fd 100%);
+}
+.callout.good { background: linear-gradient(180deg, #f0fdf4 0%, #ecfdf5 100%); border-color:#bae6d3; }
+.callout.warn { background: linear-gradient(180deg, #fff7ed 0%, #fffbeb 100%); border-color:#fcd7aa; }
+.callout.bad  { background: linear-gradient(180deg, #fff1f2 0%, #fff5f5 100%); border-color:#fecdd3; }
+.callout-label {
+    font-family:'JetBrains Mono', monospace;
+    font-size:9px;
+    text-transform:uppercase;
+    letter-spacing:0.12em;
+    color:#7b8da9;
+    margin-bottom:5px;
+}
+.callout-value {
+    font-size:19px;
+    font-weight:750;
+    color:#0f172a;
+    letter-spacing:-0.03em;
+}
+.callout-note {
+    font-size:11px;
+    color:#64748b;
+    margin-top:4px;
+}
+.footer-note {
+    font-family:'JetBrains Mono', monospace;
+    font-size:10px;
+    color:#94a3b8;
+    text-align:right;
+    padding: 0 28px 18px 28px;
+}
+div[data-testid="metric-container"] { display: none; }
+.stExpander {
+    border:1px solid #dfe6f3 !important;
+    border-radius:14px !important;
+    background: rgba(255,255,255,0.86) !important;
+}
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR
-# ═══════════════════════════════════════════════════════════════════════════════
+
+# =============================================================================
+# CONSTANTS / HELPERS
+# =============================================================================
+PF = "Inter, sans-serif"
+MF = "JetBrains Mono, monospace"
+GRID = "#e8edf5"
+BG = "rgba(255,255,255,0.0)"
+
+C = {
+    "blue": "#1d4ed8",
+    "blue_fill": "rgba(29,78,216,0.10)",
+    "green": "#059669",
+    "green_fill": "rgba(5,150,105,0.10)",
+    "amber": "#d97706",
+    "amber_fill": "rgba(217,119,6,0.10)",
+    "red": "#dc2626",
+    "red_fill": "rgba(220,38,38,0.10)",
+    "purple": "#7c3aed",
+    "purple_fill": "rgba(124,58,237,0.10)",
+    "teal": "#0f766e",
+    "teal_fill": "rgba(15,118,110,0.10)",
+    "slate": "#334155",
+    "light": "#ffffff",
+    "oil": "#1d4ed8",
+    "gas": "#059669",
+    "plant": "#d97706",
+    "deductions": "#dc2626",
+    "net": "#7c3aed",
+    "loe": "#2563eb",
+    "workover": "#dc2626",
+    "leasehold": "#d97706",
+    "capital": "#7c3aed",
+    "total_cost": "#111827",
+}
+
+
+def ensure_columns(frame: pd.DataFrame, defaults: dict) -> pd.DataFrame:
+    frame = frame.copy()
+    for col, default in defaults.items():
+        if col not in frame.columns:
+            frame[col] = default
+    return frame
+
+
+def normalize_str(s):
+    if pd.isna(s):
+        return "Unknown"
+    s = str(s).strip()
+    return s if s else "Unknown"
+
+
+def fmt_currency(v, decimals=1):
+    try:
+        v = float(v)
+    except Exception:
+        return "$0"
+    sign = "-" if v < 0 else ""
+    v = abs(v)
+    if v >= 1_000_000_000:
+        return f"{sign}${v/1_000_000_000:.{decimals}f}B"
+    if v >= 1_000_000:
+        return f"{sign}${v/1_000_000:.{decimals}f}M"
+    if v >= 1_000:
+        return f"{sign}${v/1_000:.{decimals}f}K"
+    return f"{sign}${v:,.0f}"
+
+
+def fmt_pct(v, decimals=1):
+    try:
+        return f"{float(v):.{decimals}f}%"
+    except Exception:
+        return "0.0%"
+
+
+def safe_div(a, b, scale=1.0):
+    try:
+        if b in (0, None) or pd.isna(b):
+            return 0.0
+        return (a / b) * scale
+    except Exception:
+        return 0.0
+
+
+def mom_pct(cur, prev):
+    if prev in (0, None) or pd.isna(prev):
+        return np.nan
+    return (cur - prev) / abs(prev) * 100
+
+
+def delta_html(cur, prev, label=""):
+    delta = mom_pct(cur, prev)
+    if pd.isna(delta):
+        return '<div class="kpi-delta neu">—</div>'
+    arrow = "▲" if delta >= 0 else "▼"
+    cls = "pos" if delta >= 0 else "neg"
+    lbl = f" vs {label}" if label else ""
+    return f'<div class="kpi-delta {cls}">{arrow} {abs(delta):.1f}%{lbl}</div>'
+
+
+def plot_layout(height=360, **kwargs):
+    base = dict(
+        height=height,
+        paper_bgcolor=BG,
+        plot_bgcolor="rgba(255,255,255,0)",
+        font=dict(family=PF, size=11, color="#334155"),
+        margin=dict(t=12, r=16, b=40, l=14),
+        hovermode="x unified",
+        hoverlabel=dict(
+            bgcolor="#0b1730",
+            bordercolor="#1d4ed8",
+            font=dict(family=MF, size=10, color="#eaf1ff"),
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            x=0,
+            font=dict(family=MF, size=9),
+            bgcolor="rgba(255,255,255,0)",
+        ),
+    )
+    base.update(kwargs)
+    return base
+
+
+def style_axes(fig):
+    tickfont = dict(family=MF, size=9, color="#8a9ab2")
+    fig.update_xaxes(
+        showgrid=False,
+        showline=True,
+        linecolor="#d8e0ed",
+        tickfont=tickfont,
+        ticks="outside",
+        ticklen=4,
+    )
+    fig.update_yaxes(
+        showgrid=True,
+        gridcolor=GRID,
+        zeroline=True,
+        zerolinecolor="#d8e0ed",
+        tickfont=tickfont,
+    )
+    return fig
+
+
+def category_color_from_sign(v, positive=C["green"], negative=C["red"]):
+    return positive if v >= 0 else negative
+
+
+def period_sort(values):
+    vals = [str(v) for v in values if pd.notna(v) and str(v).strip() != ""]
+    return sorted(vals)
+
+
+def expense_bucket_sum(exp_frame, bucket, period=None):
+    if exp_frame is None or exp_frame.empty:
+        return 0.0
+    mask = exp_frame["Bucket"].eq(bucket)
+    if period is not None:
+        mask &= exp_frame["Period"].eq(period)
+    return float(exp_frame.loc[mask, "Amount"].sum())
+
+
+def add_panel(title, sub, color="blue"):
+    st.markdown(
+        f'<div class="panel {color}"><div class="panel-title">{title}</div><div class="panel-sub">{sub}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def close_panel():
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+# =============================================================================
+# LOAD DATA
+# =============================================================================
 with st.sidebar:
-    st.markdown("""
-    <div class="sb-logo">
-      <div class="sb-logo-box">P</div>
-      <div>
-        <div class="sb-logo-name">P&amp;L Intelligence</div>
-        <div class="sb-logo-sub">FP&amp;A · Oil &amp; Gas</div>
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="sidebar-brand">
+            <div class="sidebar-brand-box">P</div>
+            <div>
+                <div class="sidebar-brand-title">P&amp;L Command Center</div>
+                <div class="sidebar-brand-sub">Institutional FP&amp;A</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.markdown('<div class="sb-section">Data Ingestion</div>', unsafe_allow_html=True)
-    uploaded = st.file_uploader(" ", type=["xlsx", "xls", "csv"], label_visibility="collapsed")
+    uploaded = st.file_uploader(
+        "Upload GL export",
+        type=["xlsx", "xls", "csv"],
+        label_visibility="collapsed",
+    )
 
-    if uploaded:
-        res = ingest_file(uploaded)
-        if res["status"] == "ok":
-            st.success(f"✓ {res['rows']:,} rows · {res['months']} periods · {res['wells']} wells")
-            st.rerun()
-        elif res["status"] == "duplicate":
-            st.info("Already loaded.")
-        else:
-            st.error(res.get("message", "Unknown error"))
+    if uploaded is not None:
+        try:
+            res = ingest_file(uploaded)
+            if isinstance(res, dict) and res.get("status") == "ok":
+                st.success(f"Loaded {res.get('rows', 0):,} rows across {res.get('months', 0)} periods.")
+                st.rerun()
+            elif isinstance(res, dict) and res.get("status") == "duplicate":
+                st.info("That file is already loaded.")
+            else:
+                st.error((res or {}).get("message", "Upload failed."))
+        except Exception as exc:
+            st.error(f"Upload failed: {exc}")
 
-    st.divider()
-
-    _raw = load_all_data()
-    if _raw is None or _raw.empty:
-        st.warning("No data loaded. Upload a GL export above.")
+    raw = load_all_data()
+    if raw is None or len(raw) == 0:
+        st.warning("No data loaded yet. Upload a GL export to begin.")
         st.stop()
 
-    df = _raw.copy()
-    for col in ["Well", "Period", "SubAcctNum"]:
-        if col not in df.columns:
-            df[col] = "Unknown"
-    df["Well"]       = df["Well"].fillna("Unknown").astype(str)
-    df["SubAcctNum"] = df["SubAcctNum"].fillna("Unknown").astype(str)
+    df = raw.copy()
+    df = ensure_columns(
+        df,
+        {
+            "Well": "Unknown",
+            "SubAcctNum": "Unknown",
+            "Period": "",
+            "Bucket": "Unknown",
+            "Account": 0,
+            "AccountDesc": "",
+            "AmountAdj": 0.0,
+        },
+    )
+
+    df["Well"] = df["Well"].apply(normalize_str)
+    df["SubAcctNum"] = df["SubAcctNum"].apply(normalize_str)
+    df["Period"] = df["Period"].fillna("").astype(str).str.strip()
+    df["Bucket"] = df["Bucket"].apply(normalize_str)
+    if "AmountAdj" in df.columns:
+        df["AmountAdj"] = pd.to_numeric(df["AmountAdj"], errors="coerce").fillna(0.0)
 
     st.markdown('<div class="sb-section">Portfolio Filter</div>', unsafe_allow_html=True)
 
-    valid_mask = (df["Well"].notna() & (df["Well"].str.strip() != "") & (df["Well"].str.strip().str.lower() != "unknown"))
-    valid      = df.loc[valid_mask, ["SubAcctNum", "Well"]].drop_duplicates().sort_values(["SubAcctNum", "Well"])
-    all_nums   = sorted(valid["SubAcctNum"].unique().tolist()) if not valid.empty else []
-    all_descs  = sorted(valid["Well"].unique().tolist())      if not valid.empty else []
+    valid_well_mask = (
+        df["Well"].notna()
+        & df["Well"].astype(str).str.strip().ne("")
+        & df["Well"].astype(str).str.strip().str.lower().ne("unknown")
+    )
+    well_map = df.loc[valid_well_mask, ["SubAcctNum", "Well"]].drop_duplicates().sort_values(["SubAcctNum", "Well"])
+    all_subaccts = sorted(well_map["SubAcctNum"].unique().tolist()) if not well_map.empty else []
+    all_wells = sorted(well_map["Well"].unique().tolist()) if not well_map.empty else []
 
-    st.markdown('<div class="sb-label">Sub Account</div>', unsafe_allow_html=True)
-    sel_nums = st.multiselect("_nums", options=all_nums, default=[], placeholder="All sub accounts…", label_visibility="collapsed")
+    sel_subaccts = st.multiselect(
+        "Sub accounts",
+        options=all_subaccts,
+        default=[],
+        placeholder="All sub accounts",
+        label_visibility="collapsed",
+    )
 
-    avail_descs = sorted(valid.loc[valid["SubAcctNum"].isin(sel_nums), "Well"].unique().tolist()) if sel_nums else all_descs
-    st.markdown('<div class="sb-label" style="margin-top:10px">Well / Asset</div>', unsafe_allow_html=True)
-    sel_descs = st.multiselect("_descs", options=avail_descs, default=[], placeholder="All wells…", label_visibility="collapsed")
+    well_options = (
+        sorted(well_map.loc[well_map["SubAcctNum"].isin(sel_subaccts), "Well"].unique().tolist())
+        if sel_subaccts
+        else all_wells
+    )
 
-    selected_wells = sel_descs if sel_descs else (avail_descs if sel_nums else [])
-    all_months     = sorted([m for m in df["Period"].dropna().astype(str).unique().tolist() if m != ""])
+    sel_wells = st.multiselect(
+        "Wells",
+        options=well_options,
+        default=[],
+        placeholder="All wells",
+        label_visibility="collapsed",
+    )
 
-    st.markdown('<div class="sb-label" style="margin-top:10px">Period Range</div>', unsafe_allow_html=True)
-    if len(all_months) >= 2:
-        month_range = st.select_slider("_period", options=all_months, value=(all_months[0], all_months[-1]), label_visibility="collapsed")
-    elif len(all_months) == 1:
-        month_range = (all_months[0], all_months[0])
+    all_periods = period_sort(df["Period"].unique().tolist())
+    st.markdown('<div class="sb-section">Period Range</div>', unsafe_allow_html=True)
+
+    if len(all_periods) >= 2:
+        period_range = st.select_slider(
+            "Period range",
+            options=all_periods,
+            value=(all_periods[0], all_periods[-1]),
+            label_visibility="collapsed",
+        )
+    elif len(all_periods) == 1:
+        period_range = (all_periods[0], all_periods[0])
     else:
-        month_range = (None, None)
+        period_range = (None, None)
 
     st.divider()
-    st.markdown(f'<div class="sb-stat">{df["Period"].nunique()} periods · {df["Well"].nunique()} wells loaded</div>', unsafe_allow_html=True)
+    st.caption(f"{df['Period'].nunique()} periods loaded • {df['Well'].nunique()} wells in model")
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# FILTER
-# ═══════════════════════════════════════════════════════════════════════════════
+
+# =============================================================================
+# FILTERED DATA / MODEL FRAMES
+# =============================================================================
 dff = df.copy()
-if selected_wells:
-    dff = dff[dff["Well"].isin(selected_wells)]
-if month_range[0] and month_range[1]:
-    dff = dff[(dff["Period"] >= month_range[0]) & (dff["Period"] <= month_range[1])]
+if sel_subaccts:
+    dff = dff[dff["SubAcctNum"].isin(sel_subaccts)]
+if sel_wells:
+    dff = dff[dff["Well"].isin(sel_wells)]
+if period_range[0] and period_range[1]:
+    dff = dff[(dff["Period"] >= period_range[0]) & (dff["Period"] <= period_range[1])]
 
-summary     = get_summary(dff)
+summary = get_summary(dff)
 exp_summary = get_expense_summary(dff)
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# STYLE HELPERS
-# ═══════════════════════════════════════════════════════════════════════════════
-PF   = "Inter, sans-serif"
-MF   = "JetBrains Mono, monospace"
-GRID = "#eef0f6"
-BG   = "#ffffff"
-C = {
-    "oil":       "#1040a8", "gas":       "#047857", "plant":     "#c27803",
-    "ded":       "#c81e1e", "net":       "#4c1d95", "dshade":    "rgba(200,30,30,0.10)",
-    "loe":       "#1040a8", "leasehold": "#c27803",
-    "capital":   "#4c1d95", "workover":  "#c81e1e", "total_exp": "#374151",
-    "ebitda":    "#047857", "margin":    "#0694a2",
-}
-BUCKET_COLORS = {
-    "LOE":       C["loe"],
-    "Leasehold": C["leasehold"],
-    "Capital":   C["capital"],
-    "Workover":  C["workover"],
-}
+summary = pd.DataFrame() if summary is None else summary.copy()
+exp_summary = pd.DataFrame() if exp_summary is None else exp_summary.copy()
 
-def fmt(v, decimals=1):
-    if abs(v) >= 1_000_000: return f"${v/1e6:.{decimals}f}M"
-    if abs(v) >= 1_000:     return f"${v/1e3:.{decimals}f}K"
-    return f"${v:,.0f}"
+summary = ensure_columns(
+    summary,
+    {
+        "Period": "",
+        "Well": "Unknown",
+        "Gross_Revenue": 0.0,
+        "Net_Revenue": 0.0,
+        "Total_Deductions": 0.0,
+        "Oil_Gross": 0.0,
+        "Gas_Gross": 0.0,
+        "Plant_Gross": 0.0,
+        "Oil_BBL": 0.0,
+        "Gas_MCF": 0.0,
+        "Plant_GAL": 0.0,
+        "Oil_Tax": 0.0,
+        "Gas_Tax": 0.0,
+        "Plant_Tax": 0.0,
+        "Gas_Comp": 0.0,
+        "Gas_LowVol": 0.0,
+        "Plant_Deduct": 0.0,
+        "Rejected_Fee": 0.0,
+    },
+)
+exp_summary = ensure_columns(
+    exp_summary,
+    {
+        "Period": "",
+        "Well": "Unknown",
+        "Bucket": "Unknown",
+        "Amount": 0.0,
+    },
+)
 
-def fmt_pct(v): return f"{v:.1f}%"
+for frame in (summary, exp_summary):
+    for c in frame.columns:
+        if c not in {"Period", "Well", "Bucket"}:
+            frame[c] = pd.to_numeric(frame[c], errors="coerce").fillna(0.0)
 
-def delta_html(cur, prev, lbl=""):
-    if prev and prev != 0:
-        d  = (cur - prev) / abs(prev) * 100
-        cl = "pos" if d >= 0 else "neg"
-        arrow = "▲" if d >= 0 else "▼"
-        return f'<span class="kpi-delta {cl}">{arrow} {abs(d):.1f}% vs {lbl}</span>'
-    return '<span class="kpi-delta neu">—</span>'
+summary["Period"] = summary["Period"].fillna("").astype(str)
+summary["Well"] = summary["Well"].apply(normalize_str)
+exp_summary["Period"] = exp_summary["Period"].fillna("").astype(str)
+exp_summary["Well"] = exp_summary["Well"].apply(normalize_str)
+exp_summary["Bucket"] = exp_summary["Bucket"].apply(normalize_str)
 
-def bl(**kw):
-    base = {
-        "font": dict(family=PF, size=11, color="#374151"),
-        "paper_bgcolor": BG, "plot_bgcolor": BG,
-        "margin": dict(t=16, b=40, l=12, r=12),
-        "hovermode": "x unified",
-        "hoverlabel": dict(bgcolor="#08111f", font_color="#dce8f8", font_family=MF, font_size=11,
-                           bordercolor="#1040a8"),
-        "legend": dict(orientation="h", yanchor="bottom", y=1.02, x=0,
-                       font=dict(family=MF, size=9), bgcolor="rgba(0,0,0,0)", borderwidth=0),
-    }
-    base.update(kw)
-    return base
+months_sorted = period_sort(dff["Period"].unique().tolist())
+last_period = months_sorted[-1] if months_sorted else None
+prev_period = months_sorted[-2] if len(months_sorted) >= 2 else None
+period_count = len(months_sorted)
+selected_well_count = len(sel_wells) if sel_wells else dff["Well"].nunique()
+total_loaded_wells = df["Well"].nunique()
 
-def sax(fig):
-    tf = dict(family=MF, size=9, color="#b0bbd4")
-    fig.update_xaxes(showgrid=False, showline=True, linecolor="#d4d9e8", tickfont=tf, ticks="outside", ticklen=3)
-    fig.update_yaxes(showgrid=True, gridcolor=GRID, zeroline=True, zerolinecolor="#d4d9e8",
-                     zerolinewidth=1, tickfont=tf)
-    return fig
+rev_period = (
+    summary.groupby("Period", as_index=False)
+    .agg(
+        Gross=("Gross_Revenue", "sum"),
+        Net_Rev=("Net_Revenue", "sum"),
+        Deductions=("Total_Deductions", "sum"),
+        Oil=("Oil_Gross", "sum"),
+        Gas=("Gas_Gross", "sum"),
+        Plant=("Plant_Gross", "sum"),
+        Oil_BBL=("Oil_BBL", "sum"),
+        Gas_MCF=("Gas_MCF", "sum"),
+        Plant_GAL=("Plant_GAL", "sum"),
+        Oil_Tax=("Oil_Tax", "sum"),
+        Gas_Tax=("Gas_Tax", "sum"),
+        Plant_Tax=("Plant_Tax", "sum"),
+        Gas_Comp=("Gas_Comp", "sum"),
+        Gas_LowVol=("Gas_LowVol", "sum"),
+        Plant_Deduct=("Plant_Deduct", "sum"),
+        Rejected_Fee=("Rejected_Fee", "sum"),
+    )
+    .sort_values("Period")
+    if not summary.empty
+    else pd.DataFrame(columns=["Period"])
+)
 
-# ── Period/metric helpers ──────────────────────────────────────────────────────
-months_sorted = sorted(dff["Period"].dropna().astype(str).unique().tolist())
-last_m = months_sorted[-1] if months_sorted else None
-prev_m = months_sorted[-2] if len(months_sorted) >= 2 else None
-n_periods = len(months_sorted)
-
-last_gross = summary.loc[summary["Period"] == last_m, "Gross_Revenue"].sum()    if (last_m and not summary.empty) else 0
-prev_gross = summary.loc[summary["Period"] == prev_m, "Gross_Revenue"].sum()    if (prev_m and not summary.empty) else 0
-last_net   = summary.loc[summary["Period"] == last_m, "Net_Revenue"].sum()      if (last_m and not summary.empty) else 0
-prev_net   = summary.loc[summary["Period"] == prev_m, "Net_Revenue"].sum()      if (prev_m and not summary.empty) else 0
-last_deds  = summary.loc[summary["Period"] == last_m, "Total_Deductions"].sum() if (last_m and not summary.empty) else 0
-ded_rate   = last_deds / last_gross * 100 if last_gross else 0
-total_gross = summary["Gross_Revenue"].sum() if not summary.empty else 0
-total_net   = summary["Net_Revenue"].sum()   if not summary.empty else 0
-
-def _exp_bucket_sum(es, bucket, period=None):
-    if es is None or es.empty: return 0
-    m = es["Bucket"] == bucket
-    if period: m = m & (es["Period"] == period)
-    return es.loc[m, "Amount"].sum()
-
-last_loe       = _exp_bucket_sum(exp_summary, "LOE",       last_m)
-last_workover  = _exp_bucket_sum(exp_summary, "Workover",  last_m)
-last_capital   = _exp_bucket_sum(exp_summary, "Capital",   last_m)
-last_leasehold = _exp_bucket_sum(exp_summary, "Leasehold", last_m)
-last_opex      = last_loe + last_workover
-last_exp       = last_opex + last_capital + last_leasehold
-
-cum_loe       = _exp_bucket_sum(exp_summary, "LOE")
-cum_workover  = _exp_bucket_sum(exp_summary, "Workover")
-cum_capital   = _exp_bucket_sum(exp_summary, "Capital")
-cum_leasehold = _exp_bucket_sum(exp_summary, "Leasehold")
-cum_opex      = cum_loe + cum_workover
-total_exp     = cum_opex + cum_capital + cum_leasehold
-
-last_net_less_opex    = last_net - last_opex
-last_net_less_capital = last_net - last_capital
-last_net_income       = last_net - last_exp
-last_ebitda           = last_net - last_opex           # proxy: net rev less field opex
-last_margin_pct       = last_net_income / last_gross * 100 if last_gross else 0
-
-cum_net_less_opex = total_net - cum_opex
-cum_net_income    = total_net - total_exp
-cum_margin_pct    = cum_net_income / total_gross * 100 if total_gross else 0
-
-# prev month for MoM on EBITDA
-prev_loe      = _exp_bucket_sum(exp_summary, "LOE",      prev_m)
-prev_workover = _exp_bucket_sum(exp_summary, "Workover", prev_m)
-prev_opex     = prev_loe + prev_workover
-prev_ebitda   = prev_net - prev_opex
-
-n_wells = df["Well"].nunique()
-wlbl = f"{len(selected_wells)} of {n_wells} wells" if selected_wells else f"All {dff['Well'].nunique()} wells"
-plbl = f"{month_range[0]} – {month_range[1]}" if month_range and month_range[0] != month_range[1] else (month_range[0] if month_range else "")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# HEADER
-# ═══════════════════════════════════════════════════════════════════════════════
-st.markdown(f"""
-<div class="ent-header">
-  <div>
-    <div class="ent-breadcrumb">FP&amp;A Console &rsaquo; Integrated P&amp;L &rsaquo; Oil &amp; Gas Operations</div>
-    <div class="ent-title">Integrated P&amp;L &nbsp;<strong>{wlbl}</strong></div>
-  </div>
-  <div class="ent-header-right">
-    <div class="ent-badge">Analysis Period &nbsp;<strong>{plbl}</strong></div>
-    <div class="ent-badge">Latest Close &nbsp;<strong>{last_m or "—"}</strong></div>
-    <div class="ent-badge live">● &nbsp;<strong>GL-Linked</strong></div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# KPI STRIP  — 8 cards, finance-first framing
-# ═══════════════════════════════════════════════════════════════════════════════
-ni_color  = "c-green" if last_net_income    >= 0 else "c-red"
-nlo_color = "c-green" if last_net_less_opex >= 0 else "c-red"
-eb_color  = "c-green" if last_ebitda        >= 0 else "c-red"
-mg_color  = "c-green" if last_margin_pct    >= 0 else "c-red"
-
-ni_val_cls  = "" if last_net_income >= 0 else " neg"
-eb_val_cls  = "" if last_ebitda     >= 0 else " neg"
-mg_val_cls  = "" if last_margin_pct >= 0 else " neg"
-
-st.markdown(f"""
-<div class="kpi-strip">
-  <div class="kpi-item c-blue">
-    <div class="kpi-lbl">Gross Revenue ({last_m or "—"})</div>
-    <div class="kpi-val">{fmt(last_gross)}</div>
-    {delta_html(last_gross, prev_gross, prev_m or "")}
-    <div class="kpi-sub">Before deductions</div>
-  </div>
-  <div class="kpi-item c-green">
-    <div class="kpi-lbl">Net Revenue ({last_m or "—"})</div>
-    <div class="kpi-val">{fmt(last_net)}</div>
-    {delta_html(last_net, prev_net, prev_m or "")}
-    <div class="kpi-sub">After taxes &amp; fees</div>
-  </div>
-  <div class="kpi-item {eb_color}">
-    <div class="kpi-lbl">Field EBITDA ({last_m or "—"})</div>
-    <div class="kpi-val{eb_val_cls}">{fmt(last_ebitda)}</div>
-    {delta_html(last_ebitda, prev_ebitda, prev_m or "")}
-    <div class="kpi-sub">Net rev less LOE + WO</div>
-  </div>
-  <div class="kpi-item {ni_color}">
-    <div class="kpi-lbl">Net Income ({last_m or "—"})</div>
-    <div class="kpi-val{ni_val_cls}">{fmt(last_net_income)}</div>
-    <div class="kpi-sub">All costs: {fmt(last_exp)}</div>
-  </div>
-  <div class="kpi-item {mg_color}">
-    <div class="kpi-lbl">Net Margin ({last_m or "—"})</div>
-    <div class="kpi-val{mg_val_cls}">{last_margin_pct:.1f}%</div>
-    <div class="kpi-sub">Cum: {cum_margin_pct:.1f}% over {n_periods}mo</div>
-  </div>
-  <div class="kpi-item c-amber">
-    <div class="kpi-lbl">Deduction Rate ({last_m or "—"})</div>
-    <div class="kpi-val">{ded_rate:.1f}%</div>
-    <div class="kpi-sub">Revenue haircut</div>
-  </div>
-  <div class="kpi-item c-purple">
-    <div class="kpi-lbl">Cum. Field EBITDA</div>
-    <div class="kpi-val">{fmt(cum_net_less_opex)}</div>
-    <div class="kpi-sub">{n_periods} period(s)</div>
-  </div>
-  <div class="kpi-item c-teal">
-    <div class="kpi-lbl">Cum. Net Income</div>
-    <div class="kpi-val">{fmt(cum_net_income)}</div>
-    <div class="kpi-sub">{n_periods} period(s)</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# BUILD UNIFIED P&L FRAME (used across multiple tabs)
-# ═══════════════════════════════════════════════════════════════════════════════
-rev_by_period = (
-    summary.groupby("Period")
-    .agg(Gross=("Gross_Revenue","sum"), Net_Rev=("Net_Revenue","sum"),
-         Deductions=("Total_Deductions","sum"))
+exp_period = (
+    exp_summary.pivot_table(index="Period", columns="Bucket", values="Amount", aggfunc="sum", fill_value=0.0)
     .reset_index()
-) if not summary.empty else pd.DataFrame(columns=["Period","Gross","Net_Rev","Deductions"])
+    .sort_values("Period")
+    if not exp_summary.empty
+    else pd.DataFrame(columns=["Period"])
+)
+for bucket in ["LOE", "Leasehold", "Capital", "Workover"]:
+    if bucket not in exp_period.columns:
+        exp_period[bucket] = 0.0
 
-exp_pivot = (
-    exp_summary.pivot_table(index="Period", columns="Bucket", values="Amount", aggfunc="sum", fill_value=0)
-    .reset_index()
-) if not exp_summary.empty else pd.DataFrame(columns=["Period"])
+all_periods_model = sorted(
+    set(rev_period["Period"].tolist() if not rev_period.empty else []).union(
+        set(exp_period["Period"].tolist() if not exp_period.empty else [])
+    )
+)
 
-for bk in ["LOE","Leasehold","Capital","Workover"]:
-    if bk not in exp_pivot.columns:
-        exp_pivot[bk] = 0.0
-
-all_periods = sorted(set(
-    list(rev_by_period["Period"].tolist() if not rev_by_period.empty else []) +
-    list(exp_pivot["Period"].tolist()     if not exp_pivot.empty     else [])
-))
-
-pl = pd.DataFrame({"Period": all_periods})
-pl = pl.merge(rev_by_period, on="Period", how="left").fillna(0)
-pl = pl.merge(exp_pivot[["Period","LOE","Leasehold","Capital","Workover"]], on="Period", how="left").fillna(0)
-pl["OpEx"]           = pl["LOE"] + pl["Workover"]
-pl["Total_Exp"]      = pl["LOE"] + pl["Workover"] + pl["Capital"] + pl["Leasehold"]
-pl["Field_EBITDA"]   = pl["Net_Rev"] - pl["OpEx"]
-pl["Net_Less_OpEx"]  = pl["Net_Rev"] - pl["OpEx"]
-pl["Net_Less_Cap"]   = pl["Net_Rev"] - pl["Capital"]
-pl["Net_Income"]     = pl["Net_Rev"] - pl["Total_Exp"]
-pl["EBITDA_Margin"]  = (pl["Field_EBITDA"] / pl["Gross"].replace(0, float("nan")) * 100).fillna(0)
-pl["Net_Margin"]     = (pl["Net_Income"]   / pl["Gross"].replace(0, float("nan")) * 100).fillna(0)
-pl["Ded_Rate"]       = (pl["Deductions"]   / pl["Gross"].replace(0, float("nan")) * 100).fillna(0)
-pl["MoM_Net"]        = pl["Net_Income"].pct_change() * 100
-pl["Cum_Net_Income"] = pl["Net_Income"].cumsum()
-pl["Cum_EBITDA"]     = pl["Field_EBITDA"].cumsum()
+pl = pd.DataFrame({"Period": all_periods_model})
+pl = pl.merge(rev_period, on="Period", how="left").fillna(0.0)
+pl = pl.merge(exp_period[["Period", "LOE", "Leasehold", "Capital", "Workover"]], on="Period", how="left").fillna(0.0)
+pl["OpEx"] = pl["LOE"] + pl["Workover"]
+pl["Total_Exp"] = pl["LOE"] + pl["Leasehold"] + pl["Capital"] + pl["Workover"]
+pl["Field_EBITDA"] = pl["Net_Rev"] - pl["OpEx"]
+pl["Net_Income"] = pl["Net_Rev"] - pl["Total_Exp"]
+pl["Net_Less_Cap"] = pl["Net_Rev"] - pl["Capital"]
+pl["Gross_Margin"] = np.where(pl["Gross"] != 0, pl["Net_Rev"] / pl["Gross"] * 100, 0.0)
+pl["EBITDA_Margin"] = np.where(pl["Gross"] != 0, pl["Field_EBITDA"] / pl["Gross"] * 100, 0.0)
+pl["Net_Margin"] = np.where(pl["Gross"] != 0, pl["Net_Income"] / pl["Gross"] * 100, 0.0)
+pl["Deduction_Rate"] = np.where(pl["Gross"] != 0, pl["Deductions"] / pl["Gross"] * 100, 0.0)
+pl["Cum_EBITDA"] = pl["Field_EBITDA"].cumsum()
+pl["Cum_NI"] = pl["Net_Income"].cumsum()
+pl["MoM_EBITDA"] = pl["Field_EBITDA"].pct_change() * 100
+pl["MoM_NI"] = pl["Net_Income"].pct_change() * 100
 pl = pl.sort_values("Period").reset_index(drop=True)
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# MODULE TABS
-# ═══════════════════════════════════════════════════════════════════════════════
-rev_tab, exp_tab, pl_tab = st.tabs(["Revenue & Production", "Cost Structure", "P&L / FP&A"])
+last_gross = float(pl.loc[pl["Period"].eq(last_period), "Gross"].sum()) if last_period else 0.0
+prev_gross = float(pl.loc[pl["Period"].eq(prev_period), "Gross"].sum()) if prev_period else 0.0
+last_net = float(pl.loc[pl["Period"].eq(last_period), "Net_Rev"].sum()) if last_period else 0.0
+prev_net = float(pl.loc[pl["Period"].eq(prev_period), "Net_Rev"].sum()) if prev_period else 0.0
+last_ebitda = float(pl.loc[pl["Period"].eq(last_period), "Field_EBITDA"].sum()) if last_period else 0.0
+prev_ebitda = float(pl.loc[pl["Period"].eq(prev_period), "Field_EBITDA"].sum()) if prev_period else 0.0
+last_ni = float(pl.loc[pl["Period"].eq(last_period), "Net_Income"].sum()) if last_period else 0.0
+last_total_exp = float(pl.loc[pl["Period"].eq(last_period), "Total_Exp"].sum()) if last_period else 0.0
+last_opex = float(pl.loc[pl["Period"].eq(last_period), "OpEx"].sum()) if last_period else 0.0
+last_capex = float(pl.loc[pl["Period"].eq(last_period), "Capital"].sum()) if last_period else 0.0
+last_deductions = float(pl.loc[pl["Period"].eq(last_period), "Deductions"].sum()) if last_period else 0.0
+last_ded_rate = safe_div(last_deductions, last_gross, 100)
+last_net_margin = safe_div(last_ni, last_gross, 100)
+cum_ebitda = float(pl["Field_EBITDA"].sum()) if not pl.empty else 0.0
+cum_ni = float(pl["Net_Income"].sum()) if not pl.empty else 0.0
+cum_gross = float(pl["Gross"].sum()) if not pl.empty else 0.0
+cum_net_margin = safe_div(cum_ni, cum_gross, 100)
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# REVENUE MODULE
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-with rev_tab:
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "Revenue Trend", "Commodity Mix", "Deduction Bridge", "Well Rankings", "Volumes & Pricing",
-    ])
+loe_last = expense_bucket_sum(exp_summary, "LOE", last_period)
+workover_last = expense_bucket_sum(exp_summary, "Workover", last_period)
+leasehold_last = expense_bucket_sum(exp_summary, "Leasehold", last_period)
+capital_last = expense_bucket_sum(exp_summary, "Capital", last_period)
 
-    with tab1:
-        trend = (
-            summary.groupby("Period")
-            .agg(Oil=("Oil_Gross","sum"), Gas=("Gas_Gross","sum"), Plant=("Plant_Gross","sum"),
-                 Deductions=("Total_Deductions","sum"), Net=("Net_Revenue","sum"))
-            .reset_index().sort_values("Period")
+boe_frame = rev_period[["Period", "Oil_BBL", "Gas_MCF"]].copy() if not rev_period.empty else pd.DataFrame(columns=["Period"])
+if not boe_frame.empty:
+    boe_frame["BOE"] = boe_frame["Oil_BBL"] + (boe_frame["Gas_MCF"] / 6.0)
+    boe_frame = boe_frame.merge(exp_period[["Period", "LOE"]] if not exp_period.empty else pd.DataFrame(columns=["Period", "LOE"]), on="Period", how="left").fillna(0.0)
+    boe_frame["LOE_per_BOE"] = np.where(boe_frame["BOE"] != 0, boe_frame["LOE"] / boe_frame["BOE"], np.nan)
+    latest_boe = float(boe_frame.loc[boe_frame["Period"].eq(last_period), "BOE"].sum()) if last_period else 0.0
+    latest_loe_per_boe = float(boe_frame.loc[boe_frame["Period"].eq(last_period), "LOE_per_BOE"].fillna(0).sum()) if last_period else 0.0
+else:
+    latest_boe = 0.0
+    latest_loe_per_boe = 0.0
+
+period_label = (
+    f"{period_range[0]} → {period_range[1]}"
+    if period_range[0] and period_range[1] and period_range[0] != period_range[1]
+    else (period_range[0] or "—")
+)
+portfolio_label = f"{selected_well_count} of {total_loaded_wells} wells" if sel_wells else f"All {dff['Well'].nunique()} wells"
+
+
+# =============================================================================
+# HEADER
+# =============================================================================
+st.markdown(
+    f"""
+<div class="header-shell">
+    <div class="header-kicker">Integrated FP&amp;A • Operating Performance • Institutional Dashboard</div>
+    <div class="header-row">
+        <div>
+            <div class="header-title">P&amp;L Command Center <strong>{portfolio_label}</strong></div>
+            <div class="header-sub">Goldman-style operating view: revenue quality, cost discipline, field EBITDA, and net income conversion.</div>
+        </div>
+        <div class="badge-row">
+            <div class="h-badge">Analysis Period <strong>{period_label}</strong></div>
+            <div class="h-badge">Latest Month <strong>{last_period or "—"}</strong></div>
+            <div class="h-badge">Coverage <strong>{period_count} period(s)</strong></div>
+            <div class="h-badge live">Status <strong>GL Linked</strong></div>
+        </div>
+    </div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+kpi_specs = [
+    ("Gross Revenue", fmt_currency(last_gross), delta_html(last_gross, prev_gross, prev_period or ""), "Latest month gross before deductions", "blue", last_gross),
+    ("Net Revenue", fmt_currency(last_net), delta_html(last_net, prev_net, prev_period or ""), "After taxes, gathering, and fees", "green", last_net),
+    ("Field EBITDA", fmt_currency(last_ebitda), delta_html(last_ebitda, prev_ebitda, prev_period or ""), "Net revenue less LOE + workover", "green" if last_ebitda >= 0 else "red", last_ebitda),
+    ("Net Income", fmt_currency(last_ni), '<div class="kpi-delta neu">All-in after leasehold + capital</div>', f"Total costs: {fmt_currency(last_total_exp)}", "green" if last_ni >= 0 else "red", last_ni),
+    ("Net Margin", fmt_pct(last_net_margin), '<div class="kpi-delta neu">Profitability on gross revenue</div>', f"Cumulative: {fmt_pct(cum_net_margin)}", "teal" if last_net_margin >= 0 else "red", last_net_margin),
+    ("Deduction Rate", fmt_pct(last_ded_rate), '<div class="kpi-delta neu">Revenue haircut</div>', f"Deductions: {fmt_currency(last_deductions)}", "amber", last_ded_rate),
+    ("Cum. EBITDA", fmt_currency(cum_ebitda), '<div class="kpi-delta neu">Across selected history</div>', f"{period_count} period(s)", "purple" if cum_ebitda >= 0 else "red", cum_ebitda),
+    ("LOE / BOE", fmt_currency(latest_loe_per_boe, 2), '<div class="kpi-delta neu">Unit operating efficiency</div>', f"BOE: {latest_boe:,.0f}", "teal", latest_loe_per_boe),
+]
+
+cards_html = '<div class="kpi-wrap"><div class="kpi-grid">'
+for label, val, delta_block, note, klass, raw in kpi_specs:
+    neg_cls = " neg" if raw < 0 and label not in {"Deduction Rate", "LOE / BOE"} else ""
+    cards_html += f"""
+    <div class="kpi-card {klass}">
+        <div class="kpi-label">{label}</div>
+        <div class="kpi-value{neg_cls}">{val}</div>
+        {delta_block}
+        <div class="kpi-note">{note}</div>
+    </div>
+    """
+cards_html += "</div></div>"
+st.markdown(cards_html, unsafe_allow_html=True)
+
+
+# =============================================================================
+# INSIGHT BOXES
+# =============================================================================
+gross_to_net = safe_div(last_net, last_gross, 100)
+opex_burden = safe_div(last_opex, last_net, 100)
+capex_burden = safe_div(last_capex, last_net, 100)
+best_period = pl.loc[pl["Net_Income"].idxmax(), "Period"] if not pl.empty else "—"
+worst_period = pl.loc[pl["Net_Income"].idxmin(), "Period"] if not pl.empty else "—"
+
+st.markdown(
+    f"""
+<div style="padding:18px 28px 0 28px;">
+    <div class="callout-grid">
+        <div class="callout {'good' if gross_to_net >= 70 else 'warn'}">
+            <div class="callout-label">Gross to Net Retention</div>
+            <div class="callout-value">{fmt_pct(gross_to_net)}</div>
+            <div class="callout-note">Portion of gross revenue retained after deductions in {last_period or "latest month"}.</div>
+        </div>
+        <div class="callout {'good' if opex_burden <= 45 else 'warn'}">
+            <div class="callout-label">OpEx Burden</div>
+            <div class="callout-value">{fmt_pct(opex_burden)}</div>
+            <div class="callout-note">LOE + workover as a share of net revenue.</div>
+        </div>
+        <div class="callout {'warn' if capex_burden > 25 else 'good'}">
+            <div class="callout-label">Capital Intensity</div>
+            <div class="callout-value">{fmt_pct(capex_burden)}</div>
+            <div class="callout-note">Capital spend as a share of net revenue.</div>
+        </div>
+        <div class="callout {'good' if last_ni >= 0 else 'bad'}">
+            <div class="callout-label">P&amp;L Read</div>
+            <div class="callout-value">{'Profitable' if last_ni >= 0 else 'Negative NI'}</div>
+            <div class="callout-note">Best month: {best_period} • Weakest month: {worst_period}</div>
+        </div>
+    </div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+
+# =============================================================================
+# MAIN TABS
+# =============================================================================
+tab_rev, tab_cost, tab_pl = st.tabs(["Revenue Quality", "Cost Discipline", "P&L Bridge"])
+
+with tab_rev:
+    rev_t1, rev_t2, rev_t3, rev_t4 = st.tabs(
+        ["Trend & Mix", "Deduction Bridge", "Well Revenue Ranking", "Volumes & Realizations"]
+    )
+
+    with rev_t1:
+        c1, c2 = st.columns([3, 2], gap="medium")
+
+        with c1:
+            add_panel(
+                "Gross-to-Net Revenue Trend",
+                "Monthly commodity stack, deductions, and net revenue overlay",
+                "blue",
+            )
+            fig = go.Figure()
+            if not rev_period.empty:
+                fig.add_bar(x=rev_period["Period"], y=rev_period["Oil"], name="Oil", marker_color=C["oil"])
+                fig.add_bar(x=rev_period["Period"], y=rev_period["Gas"], name="Gas", marker_color=C["gas"])
+                fig.add_bar(x=rev_period["Period"], y=rev_period["Plant"], name="Plant / NGL", marker_color=C["plant"])
+                fig.add_bar(
+                    x=rev_period["Period"],
+                    y=-rev_period["Deductions"],
+                    name="Deductions",
+                    marker_color=C["red_fill"],
+                )
+                fig.add_scatter(
+                    x=rev_period["Period"],
+                    y=rev_period["Net_Rev"],
+                    name="Net Revenue",
+                    mode="lines+markers",
+                    line=dict(color=C["net"], width=2.6),
+                    marker=dict(size=7, color=C["net"], line=dict(width=2, color="#ffffff")),
+                    hovertemplate="%{x}<br>Net Revenue: $%{y:,.0f}<extra></extra>",
+                )
+            fig.update_layout(**plot_layout(height=390, barmode="relative", yaxis=dict(tickprefix="$", tickformat=",.0f")))
+            style_axes(fig)
+            st.plotly_chart(fig, use_container_width=True)
+            close_panel()
+
+        with c2:
+            add_panel(
+                "Cumulative Commodity Mix",
+                "Contribution to total gross revenue",
+                "green",
+            )
+            mix_vals = [
+                float(rev_period["Oil"].sum()) if not rev_period.empty else 0.0,
+                float(rev_period["Gas"].sum()) if not rev_period.empty else 0.0,
+                float(rev_period["Plant"].sum()) if not rev_period.empty else 0.0,
+            ]
+            fig2 = go.Figure(
+                go.Pie(
+                    labels=["Oil", "Gas", "Plant / NGL"],
+                    values=mix_vals,
+                    hole=0.62,
+                    marker=dict(colors=[C["oil"], C["gas"], C["plant"]], line=dict(color="#ffffff", width=3)),
+                    textinfo="label+percent",
+                    textfont=dict(family=MF, size=10),
+                    hovertemplate="%{label}: $%{value:,.0f}<extra></extra>",
+                )
+            )
+            fig2.update_layout(
+                height=390,
+                showlegend=False,
+                paper_bgcolor=BG,
+                margin=dict(t=10, b=10, l=10, r=10),
+                annotations=[
+                    dict(
+                        x=0.5,
+                        y=0.5,
+                        showarrow=False,
+                        text=f"<b>{fmt_currency(sum(mix_vals))}</b><br><span style='font-size:10px;color:#94a3b8'>Gross Rev</span>",
+                        font=dict(family=PF, size=18, color="#0f172a"),
+                    )
+                ],
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+            close_panel()
+
+    with rev_t2:
+        bridge_period = st.selectbox(
+            "Bridge period",
+            months_sorted[::-1] if months_sorted else ["—"],
+            index=0 if months_sorted else None,
+            key="bridge_period",
         )
-        # MoM net change
-        trend["Net_MoM"] = trend["Net"].pct_change() * 100
+        bridge_row = rev_period.loc[rev_period["Period"].eq(bridge_period)].copy() if not rev_period.empty else pd.DataFrame()
+        if bridge_row.empty:
+            st.info("No revenue data is available for the selected period.")
+        else:
+            row = bridge_row.iloc[0]
+            components = [
+                ("Oil Prod Tax", float(row.get("Oil_Tax", 0.0)), C["red"]),
+                ("Gas Prod Tax", float(row.get("Gas_Tax", 0.0)), C["red"]),
+                ("Plant Prod Tax", float(row.get("Plant_Tax", 0.0)), C["red"]),
+                ("Compression", float(row.get("Gas_Comp", 0.0)), C["amber"]),
+                ("Low Vol Fee", float(row.get("Gas_LowVol", 0.0)), C["amber"]),
+                ("Plant Deduct", float(row.get("Plant_Deduct", 0.0)), C["amber"]),
+                ("Rejected Fee", float(row.get("Rejected_Fee", 0.0)), C["amber"]),
+            ]
+            components = [(n, v, c) for n, v, c in components if abs(v) > 0.01]
 
-        st.markdown('<div class="panel"><div class="panel-title">Revenue Trend — Gross to Net Bridge</div><div class="panel-sub">Monthly gross by commodity · deductions · net revenue overlay</div>', unsafe_allow_html=True)
-        fig = go.Figure()
-        fig.add_bar(x=trend["Period"], y=trend["Oil"],   name="Oil",       marker_color=C["oil"],   marker_line_width=0)
-        fig.add_bar(x=trend["Period"], y=trend["Gas"],   name="Gas",       marker_color=C["gas"],   marker_line_width=0)
-        fig.add_bar(x=trend["Period"], y=trend["Plant"], name="Plant/NGL", marker_color=C["plant"], marker_line_width=0)
-        fig.add_bar(x=trend["Period"], y=(-trend["Deductions"]).tolist(), name="Deductions",
-                    marker_color=C["dshade"], marker_line_width=0)
-        fig.add_scatter(x=trend["Period"], y=trend["Net"], name="Net Revenue",
-                        line=dict(color=C["net"], width=2.5), mode="lines+markers",
-                        marker=dict(size=6, color=C["net"], line=dict(color="#fff", width=2)))
-        fig.update_layout(**bl(barmode="relative", height=380, yaxis=dict(tickprefix="$", tickformat=",.0f")))
-        sax(fig)
-        st.plotly_chart(fig, use_container_width=True, key="rev_trend")
-        st.markdown("</div>", unsafe_allow_html=True)
+            labels = ["Gross Revenue"] + [n for n, _, _ in components] + ["Net Revenue"]
+            measures = ["absolute"] + ["relative"] * len(components) + ["total"]
+            values = [float(row["Gross"])] + [-v for _, v, _ in components] + [float(row["Net_Rev"])]
+            colors = [C["blue"]] + [c for _, _, c in components] + [C["purple"]]
 
-        with st.expander("Data table"):
-            td = trend.copy()
-            for c in ["Oil","Gas","Plant","Deductions","Net"]:
-                td[c] = td[c].apply(lambda v: f"${v:,.0f}")
-            td["Net MoM%"] = trend["Net_MoM"].apply(lambda v: f"{v:+.1f}%" if pd.notna(v) else "—")
-            st.dataframe(td[["Period","Oil","Gas","Plant","Deductions","Net","Net MoM%"]], use_container_width=True, hide_index=True)
-
-    with tab2:
-        mix   = (summary.groupby("Period").agg(Oil=("Oil_Gross","sum"), Gas=("Gas_Gross","sum"), Plant=("Plant_Gross","sum"))
-                 .reset_index().sort_values("Period"))
-        tot_o = summary["Oil_Gross"].sum()   if not summary.empty else 0
-        tot_g = summary["Gas_Gross"].sum()   if not summary.empty else 0
-        tot_p = summary["Plant_Gross"].sum() if not summary.empty else 0
-        L, R  = st.columns([3, 2], gap="medium")
-        with L:
-            st.markdown('<div class="panel"><div class="panel-title">Monthly Revenue Stack</div><div class="panel-sub">Gross by commodity per period</div>', unsafe_allow_html=True)
-            f2 = go.Figure()
-            f2.add_bar(x=mix["Period"], y=mix["Oil"],   name="Oil",       marker_color=C["oil"],   marker_line_width=0)
-            f2.add_bar(x=mix["Period"], y=mix["Gas"],   name="Gas",       marker_color=C["gas"],   marker_line_width=0)
-            f2.add_bar(x=mix["Period"], y=mix["Plant"], name="Plant/NGL", marker_color=C["plant"], marker_line_width=0)
-            f2.update_layout(**bl(barmode="stack", height=340, yaxis=dict(tickprefix="$", tickformat=",.0f")))
-            sax(f2)
-            st.plotly_chart(f2, use_container_width=True, key="mix_stack")
-            st.markdown("</div>", unsafe_allow_html=True)
-        with R:
-            st.markdown('<div class="panel"><div class="panel-title">Cumulative Mix</div><div class="panel-sub">All selected periods</div>', unsafe_allow_html=True)
-            f3 = go.Figure(go.Pie(
-                labels=["Oil","Gas","Plant/NGL"], values=[tot_o, tot_g, tot_p], hole=0.64,
-                marker=dict(colors=[C["oil"], C["gas"], C["plant"]], line=dict(color="#fff", width=3)),
-                textinfo="label+percent", textfont=dict(family=MF, size=10),
-                hovertemplate="%{label}: $%{value:,.0f}<extra></extra>", insidetextorientation="radial",
-            ))
-            f3.update_layout(height=340, showlegend=False, paper_bgcolor=BG, margin=dict(t=10,b=10,l=20,r=20),
-                annotations=[dict(text=f"<b>{fmt(tot_o+tot_g+tot_p)}</b>", x=0.5, y=0.5, showarrow=False,
-                                  font=dict(family=PF, size=17, color="#0d1424"))])
-            st.plotly_chart(f3, use_container_width=True, key="mix_pie")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-    with tab3:
-        sc, cc = st.columns([1, 4], gap="medium")
-        with sc:
-            st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
-            bp_period = st.selectbox("Period", months_sorted[::-1] if months_sorted else ["—"], index=0, key="bp_sel")
-        bp    = summary[summary["Period"] == bp_period].sum(numeric_only=True) if not summary.empty else pd.Series(dtype=float)
-        gross = bp.get("Gross_Revenue", 0.0)
-        net   = bp.get("Net_Revenue", 0.0)
-        di    = [(l,v,c) for l,v,c in [
-            ("Oil Prod. Tax",    bp.get("Oil_Tax",      0.0), "#991b1b"),
-            ("Gas Prod. Tax",    bp.get("Gas_Tax",      0.0), "#991b1b"),
-            ("Plant Prod. Tax",  bp.get("Plant_Tax",    0.0), "#991b1b"),
-            ("Compression",      bp.get("Gas_Comp",     0.0), "#92400e"),
-            ("Low Vol. Fee",     bp.get("Gas_LowVol",   0.0), "#92400e"),
-            ("Plant Deduction",  bp.get("Plant_Deduct", 0.0), "#92400e"),
-            ("Rejected Load Fee",bp.get("Rejected_Fee", 0.0), "#b45309"),
-        ] if v > 0.01]
-        labels = ["Gross Revenue"] + [i[0] for i in di] + ["Net Revenue"]
-        bclrs  = ["#1040a8"] + [i[2] for i in di] + ["#4c1d95"]
-        bases, bvals = [], []
-        running = gross
-        for idx in range(len(labels)):
-            if idx == 0:               bases.append(0); bvals.append(gross)
-            elif idx == len(labels)-1: bases.append(0); bvals.append(net)
-            else:
-                dv = di[idx-1][1]; bases.append(running - dv); bvals.append(dv); running -= dv
-        dvals = [gross] + [-i[1] for i in di] + [net]
-        with cc:
-            st.markdown('<div class="panel"><div class="panel-title">Revenue Deduction Waterfall</div><div class="panel-sub">Gross → production taxes → gathering/transport fees → net</div>', unsafe_allow_html=True)
-            f4 = go.Figure()
-            f4.add_bar(x=labels, y=bases, marker_color="rgba(0,0,0,0)", showlegend=False, hoverinfo="skip")
-            f4.add_bar(x=labels, y=bvals, marker_color=bclrs, marker_line_width=0,
-                       text=[fmt(v) for v in dvals], textposition="outside",
-                       textfont=dict(family=MF, size=10, color="#374151"), showlegend=False,
-                       hovertemplate="%{x}: $%{y:,.0f}<extra></extra>")
-            f4.update_layout(**bl(barmode="stack", height=400, yaxis=dict(tickprefix="$", tickformat=",.0f")))
-            sax(f4)
-            st.plotly_chart(f4, use_container_width=True, key="ded_waterfall")
-            st.markdown("</div>", unsafe_allow_html=True)
-        ded_total = gross - net
-        st.markdown(f"""
-        <div class="sum-row">
-          <div class="sum-cell"><div class="sum-lbl">Gross Revenue</div><div class="sum-val">{fmt(gross)}</div><div class="sum-note">Pre-deduction</div></div>
-          <div class="sum-cell amber"><div class="sum-lbl">Total Deductions</div><div class="sum-val">{fmt(ded_total)}</div><div class="sum-note">{f"{ded_total/gross*100:.1f}% of gross" if gross else "—"}</div></div>
-          <div class="sum-cell green"><div class="sum-lbl">Net Revenue</div><div class="sum-val">{fmt(net)}</div><div class="sum-note">{f"{net/gross*100:.1f}% retained" if gross else "—"}</div></div>
-        </div>""", unsafe_allow_html=True)
-
-    with tab4:
-        ctrl, cc = st.columns([1, 4], gap="medium")
-        with ctrl:
-            st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
-            top_n = st.slider("Top N wells", 5, 50, 15, key="rev_topn")
-            rp    = st.selectbox("Period", ["All periods"] + (months_sorted[::-1] if months_sorted else []), key="rev_rp")
-            rm    = st.radio("Metric", ["Gross Revenue","Net Revenue"], key="rev_rm")
-        rdf = dff[dff["Period"] == rp].copy() if rp != "All periods" else dff.copy()
-        mc  = "Gross_Revenue" if rm == "Gross Revenue" else "Net_Revenue"
-        ws  = get_summary(rdf)
-        wr  = ws.groupby("Well")[mc].sum().sort_values(ascending=False).head(top_n).reset_index() if not ws.empty else pd.DataFrame(columns=["Well", mc])
-        with cc:
-            st.markdown(f'<div class="panel"><div class="panel-title">Top {top_n} Wells — {rm}</div><div class="panel-sub">{rp}</div>', unsafe_allow_html=True)
-            f5 = go.Figure(go.Bar(
-                x=wr[mc] if not wr.empty else [], y=wr["Well"] if not wr.empty else [],
-                orientation="h",
-                marker=dict(
-                    color=wr[mc] if not wr.empty else [],
-                    colorscale=[[0,"#93c5fd"],[0.5,"#1a56db"],[1,"#1040a8"]],
-                    showscale=False,
-                ),
-                marker_line_width=0,
-                text=wr[mc].apply(fmt) if not wr.empty else [],
-                textposition="outside", textfont=dict(family=MF, size=10),
-                hovertemplate="%{y}: $%{x:,.0f}<extra></extra>",
-            ))
-            f5.update_layout(**bl(height=max(380, top_n*30), xaxis=dict(tickprefix="$", tickformat=",.0f"),
-                                  yaxis=dict(autorange="reversed"), margin=dict(t=16,b=40,l=230,r=90)))
-            sax(f5)
-            st.plotly_chart(f5, use_container_width=True, key="well_rank_rev")
-            st.markdown("</div>", unsafe_allow_html=True)
-        with st.expander("Full well-by-period detail"):
-            ws2 = get_summary(dff)
-            if ws2.empty:
-                st.dataframe(pd.DataFrame(), use_container_width=True, hide_index=True)
-            else:
-                tbl = ws2.pivot_table(index="Well", columns="Period", values=mc, aggfunc="sum", fill_value=0).reset_index()
-                tbl["Total"] = tbl.iloc[:,1:].sum(axis=1)
-                tbl = tbl.sort_values("Total", ascending=False)
-                for col in tbl.columns[1:]:
-                    tbl[col] = tbl[col].apply(lambda v: f"${v:,.0f}" if v != 0 else "—")
-                st.dataframe(tbl, use_container_width=True, hide_index=True)
-
-    with tab5:
-        vol = (summary.groupby("Period")
-               .agg(Oil_BBL=("Oil_BBL","sum"), Gas_MCF=("Gas_MCF","sum"), Plant_GAL=("Plant_GAL","sum"))
-               .reset_index().sort_values("Period"))
-        rp2 = (summary.groupby("Period").agg(Oil_Rev=("Oil_Gross","sum"), Oil_BBL=("Oil_BBL","sum"),
-                Gas_Rev=("Gas_Gross","sum"), Gas_MCF=("Gas_MCF","sum")).reset_index())
-        rp2["Oil_Price"] = (rp2["Oil_Rev"] / rp2["Oil_BBL"].replace(0, float("nan")))
-        rp2["Gas_Price"] = (rp2["Gas_Rev"] / rp2["Gas_MCF"].replace(0, float("nan")))
-
-        L_v, R_v = st.columns(2, gap="medium")
-        with L_v:
-            st.markdown('<div class="panel"><div class="panel-title">Production Volumes</div><div class="panel-sub">Oil (BBL) · Gas (MCF) · Plant/NGL (GAL — right axis)</div>', unsafe_allow_html=True)
-            f6 = make_subplots(specs=[[{"secondary_y": True}]])
-            f6.add_bar(x=vol["Period"], y=vol["Oil_BBL"], name="Oil (BBL)", marker_color=C["oil"],  marker_line_width=0, secondary_y=False)
-            f6.add_bar(x=vol["Period"], y=vol["Gas_MCF"], name="Gas (MCF)", marker_color=C["gas"],  marker_line_width=0, secondary_y=False)
-            f6.add_scatter(x=vol["Period"], y=vol["Plant_GAL"], name="Plant (GAL)",
-                           line=dict(color=C["plant"], width=2.5), mode="lines+markers",
-                           marker=dict(size=6, color=C["plant"], line=dict(color="#fff", width=2)), secondary_y=True)
-            f6.update_layout(**bl(barmode="group", height=320))
-            tf2 = dict(family=MF, size=9, color="#b0bbd4")
-            f6.update_xaxes(showgrid=False, showline=True, linecolor="#d4d9e8", tickfont=tf2)
-            f6.update_yaxes(title_text="BBL / MCF", showgrid=True, gridcolor=GRID, tickfont=tf2, secondary_y=False)
-            f6.update_yaxes(title_text="GAL", showgrid=False, tickfont=tf2, secondary_y=True)
-            st.plotly_chart(f6, use_container_width=True, key="volumes")
-            st.markdown("</div>", unsafe_allow_html=True)
-        with R_v:
-            st.markdown('<div class="panel"><div class="panel-title">Implied Realized Prices</div><div class="panel-sub">Oil ($/BBL) · Gas ($/MCF) — price realization trend</div>', unsafe_allow_html=True)
-            f_pr = make_subplots(specs=[[{"secondary_y": True}]])
-            f_pr.add_scatter(x=rp2["Period"], y=rp2["Oil_Price"], name="Oil $/BBL",
-                             line=dict(color=C["oil"], width=2.5), mode="lines+markers",
-                             marker=dict(size=6, color=C["oil"], line=dict(color="#fff", width=2)),
-                             secondary_y=False)
-            f_pr.add_scatter(x=rp2["Period"], y=rp2["Gas_Price"], name="Gas $/MCF",
-                             line=dict(color=C["gas"], width=2.5), mode="lines+markers",
-                             marker=dict(size=6, color=C["gas"], line=dict(color="#fff", width=2)),
-                             secondary_y=True)
-            f_pr.update_layout(**bl(height=320))
-            tf3 = dict(family=MF, size=9, color="#b0bbd4")
-            f_pr.update_xaxes(showgrid=False, showline=True, linecolor="#d4d9e8", tickfont=tf3)
-            f_pr.update_yaxes(title_text="Oil $/BBL", tickprefix="$", tickformat=",.2f", showgrid=True, gridcolor=GRID, tickfont=tf3, secondary_y=False)
-            f_pr.update_yaxes(title_text="Gas $/MCF", tickprefix="$", tickformat=",.3f", showgrid=False, tickfont=tf3, secondary_y=True)
-            st.plotly_chart(f_pr, use_container_width=True, key="realized_prices")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# EXPENSE MODULE
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-with exp_tab:
-    etab1, etab2, etab3, etab4 = st.tabs([
-        "Cost Trend", "Bucket Breakdown", "Well Deep-Dive", "Well Rankings",
-    ])
-
-    if exp_summary.empty:
-        for t in [etab1, etab2, etab3, etab4]:
-            with t:
-                st.info("No expense data found in the loaded GL export.")
-    else:
-        exp_trend = (exp_summary.groupby(["Period","Bucket"])["Amount"]
-                     .sum().reset_index().sort_values("Period"))
-        exp_period = (exp_trend.pivot_table(index="Period", columns="Bucket", values="Amount", fill_value=0)
-                      .reset_index().sort_values("Period"))
-        for bk in ["LOE","Leasehold","Capital","Workover"]:
-            if bk not in exp_period.columns:
-                exp_period[bk] = 0.0
-        exp_period["Total"] = exp_period[["LOE","Leasehold","Capital","Workover"]].sum(axis=1)
-
-        with etab1:
-            # LOE per BOE if volume data available
-            vol_tot = summary.groupby("Period").agg(Oil_BBL=("Oil_BBL","sum"), Gas_MCF=("Gas_MCF","sum")).reset_index()
-            vol_tot["BOE"] = vol_tot["Oil_BBL"] + vol_tot["Gas_MCF"] / 6  # 6 MCF ~ 1 BOE
-            exp_loe_only = exp_period[["Period","LOE"]].copy()
-            loe_boe = exp_loe_only.merge(vol_tot[["Period","BOE"]], on="Period", how="left")
-            loe_boe["LOE_BOE"] = loe_boe["LOE"] / loe_boe["BOE"].replace(0, float("nan"))
-
-            st.markdown('<div class="panel red"><div class="panel-title">Cost Structure Trend</div><div class="panel-sub">Monthly LOE · Leasehold · Capital · Workover · total overlay</div>', unsafe_allow_html=True)
-            fe1 = go.Figure()
-            for bk in ["LOE","Leasehold","Capital","Workover"]:
-                fe1.add_bar(x=exp_period["Period"], y=exp_period[bk], name=bk,
-                            marker_color=BUCKET_COLORS[bk], marker_line_width=0)
-            fe1.add_scatter(x=exp_period["Period"], y=exp_period["Total"], name="Total Costs",
-                            line=dict(color="#0d1424", width=2.5), mode="lines+markers",
-                            marker=dict(size=6, color="#0d1424", line=dict(color="#fff", width=2)))
-            fe1.update_layout(**bl(barmode="stack", height=360, yaxis=dict(tickprefix="$", tickformat=",.0f")))
-            sax(fe1)
-            st.plotly_chart(fe1, use_container_width=True, key="exp_trend")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-            # LOE/BOE chart
-            if loe_boe["LOE_BOE"].notna().any():
-                st.markdown('<div class="panel indigo"><div class="panel-title">LOE per BOE — Unit Cost Efficiency</div><div class="panel-sub">Field operating cost per barrel of oil equivalent · key FP&A efficiency metric</div>', unsafe_allow_html=True)
-                f_loe_boe = go.Figure()
-                f_loe_boe.add_scatter(x=loe_boe["Period"], y=loe_boe["LOE_BOE"], name="LOE/BOE",
-                                      fill="tozeroy", fillcolor="rgba(16,64,168,0.07)",
-                                      line=dict(color=C["oil"], width=2.5), mode="lines+markers",
-                                      marker=dict(size=6, color=C["oil"], line=dict(color="#fff", width=2)),
-                                      hovertemplate="%{x}: $%{y:.2f}/BOE<extra></extra>")
-                f_loe_boe.update_layout(**bl(height=240, yaxis=dict(tickprefix="$", tickformat=",.2f", title="$/BOE")))
-                sax(f_loe_boe)
-                st.plotly_chart(f_loe_boe, use_container_width=True, key="loe_boe")
-                st.markdown("</div>", unsafe_allow_html=True)
-
-            loe_tot = exp_period["LOE"].sum()
-            lh_tot  = exp_period["Leasehold"].sum()
-            cap_tot = exp_period["Capital"].sum()
-            wo_tot  = exp_period["Workover"].sum()
-            all_tot = loe_tot + lh_tot + cap_tot + wo_tot
-            st.markdown(f"""
-            <div class="sum-row">
-              <div class="sum-cell"><div class="sum-lbl">LOE (9000–9099)</div><div class="sum-val">{fmt(loe_tot)}</div><div class="sum-note">{f"{loe_tot/all_tot*100:.1f}% of total" if all_tot else "—"}</div></div>
-              <div class="sum-cell amber"><div class="sum-lbl">Leasehold (9100–9199)</div><div class="sum-val">{fmt(lh_tot)}</div><div class="sum-note">{f"{lh_tot/all_tot*100:.1f}% of total" if all_tot else "—"}</div></div>
-              <div class="sum-cell purple"><div class="sum-lbl">Capital (9200–9399)</div><div class="sum-val">{fmt(cap_tot)}</div><div class="sum-note">{f"{cap_tot/all_tot*100:.1f}% of total" if all_tot else "—"}</div></div>
-              <div class="sum-cell red"><div class="sum-lbl">Workover (9500–9598)</div><div class="sum-val">{fmt(wo_tot)}</div><div class="sum-note">{f"{wo_tot/all_tot*100:.1f}% of total" if all_tot else "—"}</div></div>
-              <div class="sum-cell teal"><div class="sum-lbl">Grand Total</div><div class="sum-val">{fmt(all_tot)}</div><div class="sum-note">{n_periods} period(s)</div></div>
-            </div>""", unsafe_allow_html=True)
-
-            with st.expander("Period data table"):
-                disp = exp_period.copy()
-                for col in ["LOE","Leasehold","Capital","Workover","Total"]:
-                    disp[col] = disp[col].apply(lambda v: f"${v:,.0f}")
-                st.dataframe(disp, use_container_width=True, hide_index=True)
-
-        with etab2:
-            ctrl2, body2 = st.columns([1, 4], gap="medium")
-            with ctrl2:
-                st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
-                e2_period = st.selectbox("Period", ["All periods"] + (months_sorted[::-1] if months_sorted else []), key="e2p")
-                e2_bucket = st.selectbox("Bucket", ["All buckets","LOE","Leasehold","Capital","Workover"], key="e2b")
-
-            e2_df = exp_summary.copy()
-            if e2_period != "All periods": e2_df = e2_df[e2_df["Period"] == e2_period]
-            if e2_bucket != "All buckets": e2_df = e2_df[e2_df["Bucket"] == e2_bucket]
-
-            e2_raw = dff[dff["Bucket"] != "Revenue"].copy()
-            if e2_period != "All periods": e2_raw = e2_raw[e2_raw["Period"] == e2_period]
-            if e2_bucket != "All buckets": e2_raw = e2_raw[e2_raw["Bucket"] == e2_bucket]
-
-            acct_roll = (e2_raw.groupby(["Account","AccountDesc","Bucket"])["AmountAdj"]
-                         .sum().reset_index().sort_values("AmountAdj", ascending=False))
-            acct_roll = acct_roll[acct_roll["AmountAdj"].abs() > 0.01]
-
-            with body2:
-                L2, R2 = st.columns(2, gap="medium")
-                with L2:
-                    bucket_tots = e2_df.groupby("Bucket")["Amount"].sum().reset_index()
-                    st.markdown('<div class="panel red"><div class="panel-title">Spend by Bucket</div><div class="panel-sub">Selected period / filter</div>', unsafe_allow_html=True)
-                    fp1 = go.Figure(go.Pie(
-                        labels=bucket_tots["Bucket"], values=bucket_tots["Amount"], hole=0.56,
-                        marker=dict(colors=[BUCKET_COLORS.get(b,"#888") for b in bucket_tots["Bucket"]],
-                                    line=dict(color="#fff", width=2.5)),
-                        textinfo="label+percent", textfont=dict(family=MF, size=10),
-                        hovertemplate="%{label}: $%{value:,.0f}<extra></extra>",
-                    ))
-                    tot_sel = bucket_tots["Amount"].sum()
-                    fp1.update_layout(height=300, showlegend=False, paper_bgcolor=BG, margin=dict(t=8,b=8,l=16,r=16),
-                        annotations=[dict(text=f"<b>{fmt(tot_sel)}</b>", x=0.5, y=0.5, showarrow=False,
-                                          font=dict(family=PF, size=16, color="#0d1424"))])
-                    st.plotly_chart(fp1, use_container_width=True, key="exp_bucket_pie")
-                    st.markdown("</div>", unsafe_allow_html=True)
-                with R2:
-                    st.markdown('<div class="panel red"><div class="panel-title">Top GL Accounts</div><div class="panel-sub">By total spend</div>', unsafe_allow_html=True)
-                    top_accts   = acct_roll.head(15)
-                    acct_labels = top_accts.apply(lambda r: f"{int(r['Account'])} – {r['AccountDesc']}" if r['AccountDesc'] else str(int(r['Account'])), axis=1)
-                    fp2 = go.Figure(go.Bar(
-                        x=top_accts["AmountAdj"], y=acct_labels, orientation="h",
-                        marker_color=[BUCKET_COLORS.get(b, "#888") for b in top_accts["Bucket"]],
-                        marker_line_width=0,
-                        text=top_accts["AmountAdj"].apply(fmt), textposition="outside",
-                        textfont=dict(family=MF, size=10),
-                        hovertemplate="%{y}: $%{x:,.0f}<extra></extra>",
-                    ))
-                    fp2.update_layout(**bl(height=300, xaxis=dict(tickprefix="$", tickformat=",.0f"),
-                                          yaxis=dict(autorange="reversed"), margin=dict(t=8,b=32,l=200,r=80)))
-                    sax(fp2)
-                    st.plotly_chart(fp2, use_container_width=True, key="exp_acct_bar")
-                    st.markdown("</div>", unsafe_allow_html=True)
-                with st.expander("Full GL account detail"):
-                    disp2 = acct_roll.copy()
-                    disp2["Amount"] = disp2["AmountAdj"].apply(lambda v: f"${v:,.0f}")
-                    disp2 = disp2[["Bucket","Account","AccountDesc","Amount"]].rename(columns={"AccountDesc":"Description"})
-                    st.dataframe(disp2, use_container_width=True, hide_index=True)
-
-        with etab3:
-            all_exp_wells = sorted(exp_summary["Well"].unique().tolist())
-            ctrl3, body3  = st.columns([1, 4], gap="medium")
-            with ctrl3:
-                st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
-                sel_well  = st.selectbox("Well", all_exp_wells, key="e3w")
-                e3_period = st.selectbox("Period", ["All periods"] + (months_sorted[::-1] if months_sorted else []), key="e3p")
-
-            well_exp = dff[(dff["Bucket"] != "Revenue") & (dff["Well"] == sel_well)].copy()
-            if e3_period != "All periods":
-                well_exp = well_exp[well_exp["Period"] == e3_period]
-
-            with body3:
-                if well_exp.empty:
-                    st.info(f"No expense data for **{sel_well}** in the selected period.")
-                else:
-                    wb_tots = well_exp.groupby("Bucket")["AmountAdj"].sum().reset_index()
-                    wb_tot  = wb_tots["AmountAdj"].sum()
-                    loe_w   = wb_tots.loc[wb_tots["Bucket"]=="LOE",       "AmountAdj"].sum()
-                    lh_w    = wb_tots.loc[wb_tots["Bucket"]=="Leasehold", "AmountAdj"].sum()
-                    cap_w   = wb_tots.loc[wb_tots["Bucket"]=="Capital",   "AmountAdj"].sum()
-                    wo_w    = wb_tots.loc[wb_tots["Bucket"]=="Workover",  "AmountAdj"].sum()
-
-                    st.markdown(f"""
-                    <div class="sum-row">
-                      <div class="sum-cell"><div class="sum-lbl">LOE</div><div class="sum-val">{fmt(loe_w)}</div></div>
-                      <div class="sum-cell amber"><div class="sum-lbl">Leasehold</div><div class="sum-val">{fmt(lh_w)}</div></div>
-                      <div class="sum-cell purple"><div class="sum-lbl">Capital</div><div class="sum-val">{fmt(cap_w)}</div></div>
-                      <div class="sum-cell red"><div class="sum-lbl">Workover</div><div class="sum-val">{fmt(wo_w)}</div></div>
-                      <div class="sum-cell teal"><div class="sum-lbl">Total</div><div class="sum-val">{fmt(wb_tot)}</div></div>
-                    </div>""", unsafe_allow_html=True)
-
-                    if e3_period == "All periods":
-                        st.markdown('<div class="panel red"><div class="panel-title">Expense Trend — ' + sel_well + '</div><div class="panel-sub">Monthly by bucket</div>', unsafe_allow_html=True)
-                        wp_trend = (well_exp.groupby(["Period","Bucket"])["AmountAdj"]
-                                    .sum().reset_index().sort_values("Period"))
-                        wp_piv = wp_trend.pivot_table(index="Period", columns="Bucket", values="AmountAdj", fill_value=0).reset_index()
-                        for bk in ["LOE","Leasehold","Capital","Workover"]:
-                            if bk not in wp_piv.columns: wp_piv[bk] = 0.0
-                        fw1 = go.Figure()
-                        for bk in ["LOE","Leasehold","Capital","Workover"]:
-                            fw1.add_bar(x=wp_piv["Period"], y=wp_piv[bk], name=bk,
-                                        marker_color=BUCKET_COLORS[bk], marker_line_width=0)
-                        fw1.update_layout(**bl(barmode="stack", height=300, yaxis=dict(tickprefix="$", tickformat=",.0f")))
-                        sax(fw1)
-                        st.plotly_chart(fw1, use_container_width=True, key="well_exp_trend")
-                        st.markdown("</div>", unsafe_allow_html=True)
-
-                    st.markdown('<div class="panel red"><div class="panel-title">GL Line Items</div><div class="panel-sub">Every charge for this well · selected period</div>', unsafe_allow_html=True)
-                    acct_detail = (well_exp.groupby(["Bucket","Account","AccountDesc"])["AmountAdj"]
-                                   .sum().reset_index().sort_values(["Bucket","AmountAdj"], ascending=[True,False]))
-                    acct_detail = acct_detail[acct_detail["AmountAdj"].abs() > 0.01]
-                    fw2 = go.Figure(go.Bar(
-                        x=acct_detail["AmountAdj"],
-                        y=acct_detail.apply(lambda r: f"{int(r['Account'])} – {r['AccountDesc']}" if r['AccountDesc'] else str(int(r['Account'])), axis=1),
-                        orientation="h",
-                        marker_color=[BUCKET_COLORS.get(b,"#888") for b in acct_detail["Bucket"]],
-                        marker_line_width=0,
-                        text=acct_detail["AmountAdj"].apply(fmt), textposition="outside",
-                        textfont=dict(family=MF, size=10),
-                        hovertemplate="%{y}: $%{x:,.0f}<extra></extra>",
-                    ))
-                    fw2.update_layout(**bl(height=max(320, len(acct_detail)*28),
-                                          xaxis=dict(tickprefix="$", tickformat=",.0f"),
-                                          yaxis=dict(autorange="reversed"),
-                                          margin=dict(t=8, b=32, l=260, r=90)))
-                    sax(fw2)
-                    st.plotly_chart(fw2, use_container_width=True, key="well_line_items")
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-                    with st.expander("Raw line-item table"):
-                        tbl3 = acct_detail.copy()
-                        tbl3["Amount"] = tbl3["AmountAdj"].apply(lambda v: f"${v:,.0f}")
-                        tbl3 = tbl3[["Bucket","Account","AccountDesc","Amount"]].rename(columns={"AccountDesc":"Description"})
-                        st.dataframe(tbl3, use_container_width=True, hide_index=True)
-
-        with etab4:
-            ctrl4, body4 = st.columns([1, 4], gap="medium")
-            with ctrl4:
-                st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
-                e4_top    = st.slider("Top N wells", 5, 50, 15, key="e4n")
-                e4_period = st.selectbox("Period", ["All periods"] + (months_sorted[::-1] if months_sorted else []), key="e4p")
-                e4_bucket = st.selectbox("Bucket", ["All buckets","LOE","Leasehold","Capital","Workover"], key="e4b")
-
-            e4_df = exp_summary.copy()
-            if e4_period != "All periods": e4_df = e4_df[e4_df["Period"] == e4_period]
-            if e4_bucket != "All buckets": e4_df = e4_df[e4_df["Bucket"] == e4_bucket]
-            well_rank = (e4_df.groupby("Well")["Amount"].sum()
-                         .sort_values(ascending=False).head(e4_top).reset_index())
-
-            with body4:
-                st.markdown(f'<div class="panel red"><div class="panel-title">Top {e4_top} Wells by Cost</div><div class="panel-sub">{e4_period} · {e4_bucket}</div>', unsafe_allow_html=True)
-                if well_rank.empty:
-                    st.info("No data for selected filters.")
-                else:
-                    fw3 = go.Figure(go.Bar(
-                        x=well_rank["Amount"], y=well_rank["Well"],
-                        orientation="h", marker_color=C["ded"], marker_line_width=0,
-                        text=well_rank["Amount"].apply(fmt), textposition="outside",
-                        textfont=dict(family=MF, size=10),
-                        hovertemplate="%{y}: $%{x:,.0f}<extra></extra>",
-                    ))
-                    fw3.update_layout(**bl(height=max(380, e4_top*30),
-                                          xaxis=dict(tickprefix="$", tickformat=",.0f"),
-                                          yaxis=dict(autorange="reversed"),
-                                          margin=dict(t=16,b=40,l=230,r=90)))
-                    sax(fw3)
-                    st.plotly_chart(fw3, use_container_width=True, key="exp_well_rank")
-                st.markdown("</div>", unsafe_allow_html=True)
-                with st.expander("Full well-by-period expense detail"):
-                    e4_full = exp_summary.copy()
-                    if e4_bucket != "All buckets": e4_full = e4_full[e4_full["Bucket"] == e4_bucket]
-                    if e4_full.empty:
-                        st.dataframe(pd.DataFrame(), use_container_width=True, hide_index=True)
-                    else:
-                        tbl4 = e4_full.pivot_table(index="Well", columns="Period", values="Amount",
-                                                   aggfunc="sum", fill_value=0).reset_index()
-                        tbl4["Total"] = tbl4.iloc[:,1:].sum(axis=1)
-                        tbl4 = tbl4.sort_values("Total", ascending=False)
-                        for col in tbl4.columns[1:]:
-                            tbl4[col] = tbl4[col].apply(lambda v: f"${v:,.0f}" if v != 0 else "—")
-                        st.dataframe(tbl4, use_container_width=True, hide_index=True)
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# P&L / FP&A MODULE
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-with pl_tab:
-    pltab1, pltab2, pltab3, pltab4 = st.tabs([
-        "Monthly P&L", "Full-Year Waterfall", "Well P&L", "Margin & Trend Analysis"
-    ])
-
-    # ── P&L Tab 1: Monthly P&L ────────────────────────────────────────────────
-    with pltab1:
-        st.markdown('<div class="panel"><div class="panel-title">Monthly P&L — Net Revenue vs Cost Structure</div><div class="panel-sub">Net revenue · OpEx · Capital · Leasehold · Net income overlay</div>', unsafe_allow_html=True)
-        fp_main = go.Figure()
-        fp_main.add_bar(x=pl["Period"], y=pl["Net_Rev"],    name="Net Revenue",
-                        marker_color=C["gas"], marker_line_width=0)
-        fp_main.add_bar(x=pl["Period"], y=-pl["OpEx"],      name="OpEx (LOE+WO)",
-                        marker_color=C["loe"], marker_line_width=0)
-        fp_main.add_bar(x=pl["Period"], y=-pl["Capital"],   name="Capital",
-                        marker_color=C["capital"], marker_line_width=0)
-        fp_main.add_bar(x=pl["Period"], y=-pl["Leasehold"], name="Leasehold",
-                        marker_color=C["leasehold"], marker_line_width=0)
-        fp_main.add_scatter(
-            x=pl["Period"], y=pl["Net_Income"], name="Net Income",
-            line=dict(color="#0d1424", width=2.5), mode="lines+markers",
-            marker=dict(size=7, color=pl["Net_Income"].apply(lambda v: "#047857" if v >= 0 else "#c81e1e"),
-                        line=dict(color="#fff", width=2)),
-        )
-        fp_main.update_layout(**bl(barmode="relative", height=400,
-                                   yaxis=dict(tickprefix="$", tickformat=",.0f")))
-        sax(fp_main)
-        st.plotly_chart(fp_main, use_container_width=True, key="pl_main")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        L_pl, R_pl = st.columns(2, gap="medium")
-        with L_pl:
-            st.markdown('<div class="panel green"><div class="panel-title">Field EBITDA</div><div class="panel-sub">Net rev less LOE + Workover per period</div>', unsafe_allow_html=True)
-            fp2_pl = go.Figure()
-            fp2_pl.add_bar(x=pl["Period"], y=pl["Field_EBITDA"],
-                           marker_color=pl["Field_EBITDA"].apply(lambda v: C["gas"] if v >= 0 else C["ded"]),
-                           marker_line_width=0,
-                           text=pl["Field_EBITDA"].apply(fmt), textposition="outside",
-                           textfont=dict(family=MF, size=9),
-                           hovertemplate="%{x}: $%{y:,.0f}<extra></extra>",
-                           showlegend=False)
-            fp2_pl.update_layout(**bl(height=260, yaxis=dict(tickprefix="$", tickformat=",.0f"),
-                                      margin=dict(t=8, b=32, l=12, r=12)))
-            sax(fp2_pl)
-            st.plotly_chart(fp2_pl, use_container_width=True, key="pl_field_ebitda")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        with R_pl:
-            st.markdown('<div class="panel teal"><div class="panel-title">Net Revenue Less Capital</div><div class="panel-sub">Net rev minus Capital spend per period</div>', unsafe_allow_html=True)
-            fp3_pl = go.Figure()
-            fp3_pl.add_bar(x=pl["Period"], y=pl["Net_Less_Cap"],
-                           marker_color=pl["Net_Less_Cap"].apply(lambda v: C["gas"] if v >= 0 else C["ded"]),
-                           marker_line_width=0,
-                           text=pl["Net_Less_Cap"].apply(fmt), textposition="outside",
-                           textfont=dict(family=MF, size=9),
-                           hovertemplate="%{x}: $%{y:,.0f}<extra></extra>",
-                           showlegend=False)
-            fp3_pl.update_layout(**bl(height=260, yaxis=dict(tickprefix="$", tickformat=",.0f"),
-                                      margin=dict(t=8, b=32, l=12, r=12)))
-            sax(fp3_pl)
-            st.plotly_chart(fp3_pl, use_container_width=True, key="pl_net_less_cap")
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        with st.expander("Full monthly P&L table"):
-            tbl_pl = pl.copy()
-            for col in ["Gross","Net_Rev","Deductions","LOE","Workover","OpEx","Leasehold","Capital",
-                        "Total_Exp","Field_EBITDA","Net_Less_Cap","Net_Income","Cum_Net_Income"]:
-                tbl_pl[col] = tbl_pl[col].apply(lambda v: f"${v:,.0f}")
-            for col in ["EBITDA_Margin","Net_Margin","Ded_Rate"]:
-                tbl_pl[col] = tbl_pl[col].apply(lambda v: f"{v:.1f}%")
-            tbl_pl["MoM_Net"] = pl["MoM_Net"].apply(lambda v: f"{v:+.1f}%" if pd.notna(v) else "—")
-            tbl_pl = tbl_pl.rename(columns={
-                "Gross":"Gross Rev","Net_Rev":"Net Rev","Deductions":"Rev Deds",
-                "OpEx":"OpEx","Total_Exp":"Total Exp","Field_EBITDA":"Field EBITDA",
-                "Net_Less_Cap":"Net Less Cap","Net_Income":"Net Income",
-                "Cum_Net_Income":"Cum Net Income","EBITDA_Margin":"EBITDA Margin",
-                "Net_Margin":"Net Margin","Ded_Rate":"Ded Rate","MoM_Net":"Net MoM%",
-            })
-            st.dataframe(tbl_pl, use_container_width=True, hide_index=True)
-
-    # ── P&L Tab 2: FULL-YEAR MULTI-PERIOD WATERFALL ───────────────────────────
-    with pltab2:
-        st.markdown('<div class="panel"><div class="panel-title">Full-Year P&L Waterfall — All Periods</div><div class="panel-sub">Cumulative gross revenue → deductions → net rev → LOE → workover → leasehold → capital → net income · every month shown</div>', unsafe_allow_html=True)
-
-        # Build cumulative totals across ALL months in view
-        cum_gross    = pl["Gross"].sum()
-        cum_deds     = pl["Deductions"].sum()
-        cum_net_rev  = pl["Net_Rev"].sum()
-        cum_loe_all  = pl["LOE"].sum()
-        cum_wo_all   = pl["Workover"].sum()
-        cum_lh_all   = pl["Leasehold"].sum()
-        cum_cap_all  = pl["Capital"].sum()
-        cum_ni_all   = pl["Net_Income"].sum()
-
-        # ── Segment 1: Cumulative summary waterfall ───────────────────────────
-        st.markdown("##### Cumulative Period Summary")
-        wf_labels_cum = ["Gross Revenue","Rev Deductions","Net Revenue",
-                         "LOE","Workover","Leasehold","Capital","Net Income"]
-        wf_vals_cum   = [cum_gross, -cum_deds, cum_net_rev,
-                         -cum_loe_all, -cum_wo_all, -cum_lh_all, -cum_cap_all, cum_ni_all]
-        wf_colors_cum = ["#1040a8","#c81e1e","#047857",
-                         C["loe"], C["workover"], C["leasehold"], C["capital"],
-                         "#047857" if cum_ni_all >= 0 else "#c81e1e"]
-
-        wf_bases_cum, wf_bars_cum = [], []
-        running = 0
-        for lbl, val in zip(wf_labels_cum, wf_vals_cum):
-            if lbl in ("Gross Revenue", "Net Revenue", "Net Income"):
-                wf_bases_cum.append(0)
-                wf_bars_cum.append(abs(val) if lbl != "Net Income" else val)
-                running = val
-            else:
-                wf_bases_cum.append(running + val)
-                wf_bars_cum.append(-val)
-                running += val
-
-        fwf_cum = go.Figure()
-        fwf_cum.add_bar(x=wf_labels_cum, y=wf_bases_cum, marker_color="rgba(0,0,0,0)", showlegend=False, hoverinfo="skip")
-        fwf_cum.add_bar(
-            x=wf_labels_cum, y=wf_bars_cum, marker_color=wf_colors_cum, marker_line_width=0,
-            text=[fmt(v) for v in wf_vals_cum], textposition="outside",
-            textfont=dict(family=MF, size=11, color="#374151"),
-            showlegend=False,
-            hovertemplate="%{x}: $%{y:,.0f}<extra></extra>",
-        )
-        fwf_cum.update_layout(**bl(barmode="stack", height=420,
-                                   yaxis=dict(tickprefix="$", tickformat=",.0f"),
-                                   margin=dict(t=20, b=48, l=12, r=12)))
-        sax(fwf_cum)
-        st.plotly_chart(fwf_cum, use_container_width=True, key="pl_waterfall_cum")
-
-        ni_cls = "green" if cum_ni_all >= 0 else "red"
-        st.markdown(f"""
-        <div class="sum-row">
-          <div class="sum-cell"><div class="sum-lbl">Gross Revenue</div><div class="sum-val">{fmt(cum_gross)}</div><div class="sum-note">{n_periods} periods</div></div>
-          <div class="sum-cell amber"><div class="sum-lbl">Rev Deductions</div><div class="sum-val">{fmt(cum_deds)}</div><div class="sum-note">{f"{cum_deds/cum_gross*100:.1f}% of gross" if cum_gross else "—"}</div></div>
-          <div class="sum-cell green"><div class="sum-lbl">Net Revenue</div><div class="sum-val">{fmt(cum_net_rev)}</div><div class="sum-note">{f"{cum_net_rev/cum_gross*100:.1f}% retained" if cum_gross else "—"}</div></div>
-          <div class="sum-cell"><div class="sum-lbl">Total OpEx</div><div class="sum-val">{fmt(cum_loe_all+cum_wo_all)}</div></div>
-          <div class="sum-cell purple"><div class="sum-lbl">Total Capital</div><div class="sum-val">{fmt(cum_cap_all)}</div></div>
-          <div class="sum-cell {ni_cls}"><div class="sum-lbl">Net Income</div><div class="sum-val {'neg' if cum_ni_all < 0 else ''}">{fmt(cum_ni_all)}</div><div class="sum-note">{f"{cum_ni_all/cum_gross*100:.1f}% margin" if cum_gross else "—"}</div></div>
-        </div>""", unsafe_allow_html=True)
-
-        st.markdown("---")
-
-        # ── Segment 2: Monthly Net Income bars with cumulative line ──────────
-        st.markdown("##### Monthly Net Income · Cumulative Build")
-        st.markdown('<div class="panel indigo"><div class="panel-title">Net Income by Period + Cumulative</div><div class="panel-sub">Monthly bars (positive/negative) · right axis: cumulative net income build</div>', unsafe_allow_html=True)
-
-        fni = make_subplots(specs=[[{"secondary_y": True}]])
-        bar_colors = pl["Net_Income"].apply(lambda v: "#047857" if v >= 0 else "#c81e1e").tolist()
-        fni.add_bar(x=pl["Period"], y=pl["Net_Income"], name="Monthly Net Income",
-                    marker_color=bar_colors, marker_line_width=0,
-                    hovertemplate="%{x}: $%{y:,.0f}<extra></extra>",
-                    secondary_y=False)
-        fni.add_scatter(x=pl["Period"], y=pl["Cum_Net_Income"], name="Cumulative Net Income",
-                        line=dict(color="#4338ca", width=2.5, dash="dot"), mode="lines+markers",
-                        marker=dict(size=6, color="#4338ca", line=dict(color="#fff", width=2)),
-                        hovertemplate="%{x} cumul: $%{y:,.0f}<extra></extra>",
-                        secondary_y=True)
-        fni.update_layout(**bl(barmode="relative", height=320))
-        tf_ni = dict(family=MF, size=9, color="#b0bbd4")
-        fni.update_xaxes(showgrid=False, showline=True, linecolor="#d4d9e8", tickfont=tf_ni)
-        fni.update_yaxes(title_text="Monthly Net Income", tickprefix="$", tickformat=",.0f",
-                         showgrid=True, gridcolor=GRID, tickfont=tf_ni, secondary_y=False)
-        fni.update_yaxes(title_text="Cumulative", tickprefix="$", tickformat=",.0f",
-                         showgrid=False, tickfont=tf_ni, secondary_y=True)
-        st.plotly_chart(fni, use_container_width=True, key="pl_monthly_ni_cum")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # ── Segment 3: Monthly waterfall — select period ──────────────────────
-        st.markdown("---")
-        st.markdown("##### Single-Period Detailed Waterfall")
-        ctrl_wf, body_wf = st.columns([1, 4], gap="medium")
-        with ctrl_wf:
-            st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
-            wf_period = st.selectbox("Period", months_sorted[::-1] if months_sorted else ["—"], key="wf_p")
-
-        wf_row = pl[pl["Period"] == wf_period].iloc[0] if not pl.empty and wf_period in pl["Period"].values else None
-
-        with body_wf:
-            if wf_row is None:
-                st.info("No data for selected period.")
-            else:
-                gross     = wf_row["Gross"]
-                rev_deds  = wf_row["Deductions"]
-                net_rev   = wf_row["Net_Rev"]
-                loe       = wf_row["LOE"]
-                workover  = wf_row["Workover"]
-                leasehold = wf_row["Leasehold"]
-                capital   = wf_row["Capital"]
-                net_inc   = wf_row["Net_Income"]
-                ebitda_m  = wf_row["EBITDA_Margin"]
-                net_m     = wf_row["Net_Margin"]
-
-                wf_labels = ["Gross Revenue","Rev Deductions","Net Revenue",
-                             "LOE","Workover","Leasehold","Capital","Net Income"]
-                wf_vals   = [gross, -rev_deds, net_rev, -loe, -workover, -leasehold, -capital, net_inc]
-                wf_colors = ["#1040a8","#c81e1e","#047857",
-                             C["loe"], C["workover"], C["leasehold"], C["capital"],
-                             "#047857" if net_inc >= 0 else "#c81e1e"]
-
-                wf_bases, wf_bars = [], []
-                running = 0
-                for lbl, val in zip(wf_labels, wf_vals):
-                    if lbl in ("Gross Revenue", "Net Revenue", "Net Income"):
-                        wf_bases.append(0)
-                        wf_bars.append(abs(val) if lbl != "Net Income" else val)
-                        running = val
-                    else:
-                        wf_bases.append(running + val)
-                        wf_bars.append(-val)
-                        running += val
-
-                st.markdown(f'<div class="panel"><div class="panel-title">P&L Waterfall — {wf_period}</div><div class="panel-sub">Gross → deductions → net rev → opex → capital → net income</div>', unsafe_allow_html=True)
-                fwf = go.Figure()
-                fwf.add_bar(x=wf_labels, y=wf_bases, marker_color="rgba(0,0,0,0)", showlegend=False, hoverinfo="skip")
-                fwf.add_bar(
-                    x=wf_labels, y=wf_bars, marker_color=wf_colors, marker_line_width=0,
-                    text=[fmt(v) for v in wf_vals], textposition="outside",
-                    textfont=dict(family=MF, size=10, color="#374151"),
-                    showlegend=False,
+            add_panel(
+                "Deduction Waterfall",
+                "Gross revenue into taxes, gathering / transport, and net revenue",
+                "amber",
+            )
+            wf = go.Figure(
+                go.Waterfall(
+                    x=labels,
+                    y=values,
+                    measure=measures,
+                    connector=dict(line=dict(color="#94a3b8")),
+                    increasing=dict(marker=dict(color=C["green"])),
+                    decreasing=dict(marker=dict(color=C["red"])),
+                    totals=dict(marker=dict(color=C["purple"])),
+                    text=[fmt_currency(v) for v in values],
+                    textposition="outside",
                     hovertemplate="%{x}: $%{y:,.0f}<extra></extra>",
                 )
-                fwf.update_layout(**bl(barmode="stack", height=420,
-                                       yaxis=dict(tickprefix="$", tickformat=",.0f")))
-                sax(fwf)
-                st.plotly_chart(fwf, use_container_width=True, key="pl_waterfall_single")
-                st.markdown("</div>", unsafe_allow_html=True)
+            )
+            wf.update_layout(**plot_layout(height=430, yaxis=dict(tickprefix="$", tickformat=",.0f")))
+            style_axes(wf)
+            st.plotly_chart(wf, use_container_width=True)
 
-                ni_cls2 = "green" if net_inc >= 0 else "red"
-                st.markdown(f"""
-                <div class="sum-row">
-                  <div class="sum-cell"><div class="sum-lbl">Gross Revenue</div><div class="sum-val">{fmt(gross)}</div></div>
-                  <div class="sum-cell amber"><div class="sum-lbl">Rev Deductions</div><div class="sum-val">{fmt(rev_deds)}</div><div class="sum-note">{f"{rev_deds/gross*100:.1f}% of gross" if gross else "—"}</div></div>
-                  <div class="sum-cell green"><div class="sum-lbl">Net Revenue</div><div class="sum-val">{fmt(net_rev)}</div></div>
-                  <div class="sum-cell"><div class="sum-lbl">OpEx (LOE+WO)</div><div class="sum-val">{fmt(loe+workover)}</div></div>
-                  <div class="sum-cell purple"><div class="sum-lbl">Capital</div><div class="sum-val">{fmt(capital)}</div></div>
-                  <div class="sum-cell teal"><div class="sum-lbl">EBITDA Margin</div><div class="sum-val">{ebitda_m:.1f}%</div></div>
-                  <div class="sum-cell {ni_cls2}"><div class="sum-lbl">Net Income</div><div class="sum-val {'neg' if net_inc < 0 else ''}">{fmt(net_inc)}</div><div class="sum-note">{f"{net_m:.1f}% net margin" if gross else "—"}</div></div>
-                </div>""", unsafe_allow_html=True)
+            gross = float(row["Gross"])
+            net = float(row["Net_Rev"])
+            total_ded = float(row["Deductions"])
+            st.dataframe(
+                pd.DataFrame(
+                    {
+                        "Metric": ["Gross Revenue", "Total Deductions", "Net Revenue", "Retention"],
+                        "Value": [
+                            fmt_currency(gross),
+                            fmt_currency(total_ded),
+                            fmt_currency(net),
+                            fmt_pct(safe_div(net, gross, 100)),
+                        ],
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+            close_panel()
 
-        st.markdown("</div>", unsafe_allow_html=True)
+    with rev_t3:
+        ctl1, ctl2 = st.columns([1, 4], gap="medium")
+        with ctl1:
+            rank_period = st.selectbox(
+                "Ranking period",
+                ["All periods"] + (months_sorted[::-1] if months_sorted else []),
+                key="rev_rank_period",
+            )
+            rank_metric = st.radio("Metric", ["Gross Revenue", "Net Revenue"], key="rev_rank_metric")
+            top_n = st.slider("Top N", 5, 30, 12, key="rev_top_n")
+        with ctl2:
+            metric_col = "Gross_Revenue" if rank_metric == "Gross Revenue" else "Net_Revenue"
+            rank_base = summary.copy()
+            if rank_period != "All periods":
+                rank_base = rank_base[rank_base["Period"].eq(rank_period)]
+            well_rank = (
+                rank_base.groupby("Well", as_index=False)[metric_col]
+                .sum()
+                .sort_values(metric_col, ascending=False)
+                .head(top_n)
+            )
+            add_panel(
+                f"Top {top_n} Wells — {rank_metric}",
+                "Concentration view by asset",
+                "blue",
+            )
+            fig3 = go.Figure(
+                go.Bar(
+                    x=well_rank[metric_col],
+                    y=well_rank["Well"],
+                    orientation="h",
+                    marker=dict(
+                        color=well_rank[metric_col],
+                        colorscale=[[0, "#93c5fd"], [0.5, "#3b82f6"], [1, "#1d4ed8"]],
+                        showscale=False,
+                    ),
+                    text=well_rank[metric_col].apply(fmt_currency),
+                    textposition="outside",
+                    hovertemplate="%{y}<br>$%{x:,.0f}<extra></extra>",
+                )
+            )
+            fig3.update_layout(
+                **plot_layout(
+                    height=max(380, top_n * 30),
+                    xaxis=dict(tickprefix="$", tickformat=",.0f"),
+                    yaxis=dict(autorange="reversed"),
+                    margin=dict(t=12, r=90, b=36, l=220),
+                )
+            )
+            style_axes(fig3)
+            st.plotly_chart(fig3, use_container_width=True)
 
-    # ── P&L Tab 3: Well P&L ───────────────────────────────────────────────────
-    with pltab3:
-        ctrl_w, body_w = st.columns([1, 4], gap="medium")
-        with ctrl_w:
-            st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
-            pw_period = st.selectbox("Period", ["All periods"] + (months_sorted[::-1] if months_sorted else []), key="pw_p")
-            pw_metric = st.radio("View", ["Net Income","Field EBITDA","Net Less Capital"], key="pw_m")
-            pw_top    = st.slider("Top N", 5, 60, 20, key="pw_n")
+            with st.expander("Full well revenue table"):
+                full_rank = (
+                    rank_base.pivot_table(index="Well", columns="Period", values=metric_col, aggfunc="sum", fill_value=0.0)
+                    .reset_index()
+                )
+                if not full_rank.empty:
+                    full_rank["Total"] = full_rank.drop(columns=["Well"]).sum(axis=1)
+                    full_rank = full_rank.sort_values("Total", ascending=False)
+                    for col in full_rank.columns[1:]:
+                        full_rank[col] = full_rank[col].apply(lambda x: fmt_currency(x, 0))
+                st.dataframe(full_rank, use_container_width=True, hide_index=True)
+            close_panel()
 
-        rev_w = (
-            summary.groupby("Well")
-            .apply(lambda g: g[g["Period"] == pw_period] if pw_period != "All periods" else g, include_groups=False)
-            .reset_index(level=0).reset_index(drop=True)
-            .groupby("Well")
-            .agg(Net_Rev=("Net_Revenue","sum"))
-            .reset_index()
-        ) if not summary.empty else pd.DataFrame(columns=["Well","Net_Rev"])
+    with rev_t4:
+        left, right = st.columns(2, gap="medium")
 
-        exp_w_raw = exp_summary.copy()
-        if pw_period != "All periods":
-            exp_w_raw = exp_w_raw[exp_w_raw["Period"] == pw_period]
-        exp_w = (
-            exp_w_raw.pivot_table(index="Well", columns="Bucket", values="Amount", aggfunc="sum", fill_value=0)
-            .reset_index()
-        ) if not exp_w_raw.empty else pd.DataFrame(columns=["Well"])
-        for bk in ["LOE","Leasehold","Capital","Workover"]:
-            if bk not in exp_w.columns: exp_w[bk] = 0.0
+        with left:
+            add_panel("Production Volumes", "Oil and gas volumes with plant liquids overlay", "teal")
+            vol_fig = make_subplots(specs=[[{"secondary_y": True}]])
+            if not rev_period.empty:
+                vol_fig.add_bar(x=rev_period["Period"], y=rev_period["Oil_BBL"], name="Oil (BBL)", marker_color=C["oil"], secondary_y=False)
+                vol_fig.add_bar(x=rev_period["Period"], y=rev_period["Gas_MCF"], name="Gas (MCF)", marker_color=C["gas"], secondary_y=False)
+                vol_fig.add_scatter(
+                    x=rev_period["Period"],
+                    y=rev_period["Plant_GAL"],
+                    name="Plant (GAL)",
+                    mode="lines+markers",
+                    line=dict(color=C["plant"], width=2.5),
+                    marker=dict(size=6, color=C["plant"], line=dict(width=2, color="#ffffff")),
+                    secondary_y=True,
+                )
+            vol_fig.update_layout(**plot_layout(height=340, barmode="group"))
+            vol_fig.update_xaxes(showgrid=False, showline=True, linecolor="#d8e0ed", tickfont=dict(family=MF, size=9, color="#8a9ab2"))
+            vol_fig.update_yaxes(showgrid=True, gridcolor=GRID, tickfont=dict(family=MF, size=9, color="#8a9ab2"), title_text="BBL / MCF", secondary_y=False)
+            vol_fig.update_yaxes(showgrid=False, tickfont=dict(family=MF, size=9, color="#8a9ab2"), title_text="GAL", secondary_y=True)
+            st.plotly_chart(vol_fig, use_container_width=True)
+            close_panel()
 
-        well_pl = rev_w.merge(exp_w, on="Well", how="outer").fillna(0)
-        well_pl["OpEx"]          = well_pl["LOE"] + well_pl["Workover"]
-        well_pl["Total_Exp"]     = well_pl["LOE"] + well_pl["Workover"] + well_pl["Capital"] + well_pl["Leasehold"]
-        well_pl["Net_Income"]    = well_pl["Net_Rev"] - well_pl["Total_Exp"]
-        well_pl["Field_EBITDA"]  = well_pl["Net_Rev"] - well_pl["OpEx"]
-        well_pl["Net_Less_Cap"]  = well_pl["Net_Rev"] - well_pl["Capital"]
+        with right:
+            add_panel("Implied Realizations", "Revenue per unit by commodity", "green")
+            price_df = rev_period[["Period", "Oil", "Gas", "Oil_BBL", "Gas_MCF"]].copy() if not rev_period.empty else pd.DataFrame(columns=["Period"])
+            if not price_df.empty:
+                price_df["Oil_Price"] = np.where(price_df["Oil_BBL"] != 0, price_df["Oil"] / price_df["Oil_BBL"], np.nan)
+                price_df["Gas_Price"] = np.where(price_df["Gas_MCF"] != 0, price_df["Gas"] / price_df["Gas_MCF"], np.nan)
+            price_fig = make_subplots(specs=[[{"secondary_y": True}]])
+            if not price_df.empty:
+                price_fig.add_scatter(
+                    x=price_df["Period"],
+                    y=price_df["Oil_Price"],
+                    name="Oil $/BBL",
+                    mode="lines+markers",
+                    line=dict(color=C["oil"], width=2.5),
+                    marker=dict(size=6, color=C["oil"], line=dict(width=2, color="#ffffff")),
+                    secondary_y=False,
+                )
+                price_fig.add_scatter(
+                    x=price_df["Period"],
+                    y=price_df["Gas_Price"],
+                    name="Gas $/MCF",
+                    mode="lines+markers",
+                    line=dict(color=C["gas"], width=2.5),
+                    marker=dict(size=6, color=C["gas"], line=dict(width=2, color="#ffffff")),
+                    secondary_y=True,
+                )
+            price_fig.update_layout(**plot_layout(height=340))
+            price_fig.update_xaxes(showgrid=False, showline=True, linecolor="#d8e0ed", tickfont=dict(family=MF, size=9, color="#8a9ab2"))
+            price_fig.update_yaxes(showgrid=True, gridcolor=GRID, tickprefix="$", tickformat=",.2f", title_text="Oil $/BBL", tickfont=dict(family=MF, size=9, color="#8a9ab2"), secondary_y=False)
+            price_fig.update_yaxes(showgrid=False, tickprefix="$", tickformat=",.3f", title_text="Gas $/MCF", tickfont=dict(family=MF, size=9, color="#8a9ab2"), secondary_y=True)
+            st.plotly_chart(price_fig, use_container_width=True)
+            close_panel()
 
-        metric_col = {"Net Income":"Net_Income","Field EBITDA":"Field_EBITDA","Net Less Capital":"Net_Less_Cap"}[pw_metric]
-        top_wells  = well_pl.sort_values(metric_col, ascending=False).head(pw_top)
-        bot_wells  = well_pl.sort_values(metric_col, ascending=True).head(pw_top)
+with tab_cost:
+    cost_t1, cost_t2, cost_t3, cost_t4 = st.tabs(
+        ["Trend & Efficiency", "Bucket / Account View", "Well Cost Ranking", "Well Detail"]
+    )
 
-        with body_w:
-            TL, TR = st.columns(2, gap="medium")
-            with TL:
-                st.markdown(f'<div class="panel green"><div class="panel-title">Top {pw_top} Wells — {pw_metric}</div><div class="panel-sub">{pw_period}</div>', unsafe_allow_html=True)
-                fw_top = go.Figure(go.Bar(
-                    x=top_wells[metric_col], y=top_wells["Well"], orientation="h",
-                    marker_color=top_wells[metric_col].apply(lambda v: C["gas"] if v >= 0 else C["ded"]),
-                    marker_line_width=0,
-                    text=top_wells[metric_col].apply(fmt), textposition="outside",
+    with cost_t1:
+        left, right = st.columns(2, gap="medium")
+
+        with left:
+            add_panel("Cost Stack", "LOE, leasehold, capital, and workover by month", "red")
+            cost_fig = go.Figure()
+            if not exp_period.empty:
+                cost_fig.add_bar(x=exp_period["Period"], y=exp_period["LOE"], name="LOE", marker_color=C["loe"])
+                cost_fig.add_bar(x=exp_period["Period"], y=exp_period["Leasehold"], name="Leasehold", marker_color=C["leasehold"])
+                cost_fig.add_bar(x=exp_period["Period"], y=exp_period["Capital"], name="Capital", marker_color=C["capital"])
+                cost_fig.add_bar(x=exp_period["Period"], y=exp_period["Workover"], name="Workover", marker_color=C["workover"])
+                total_cost_series = exp_period[["LOE", "Leasehold", "Capital", "Workover"]].sum(axis=1)
+                cost_fig.add_scatter(
+                    x=exp_period["Period"],
+                    y=total_cost_series,
+                    name="Total Cost",
+                    mode="lines+markers",
+                    line=dict(color=C["total_cost"], width=2.5),
+                    marker=dict(size=7, color=C["total_cost"], line=dict(width=2, color="#ffffff")),
+                )
+            cost_fig.update_layout(**plot_layout(height=360, barmode="stack", yaxis=dict(tickprefix="$", tickformat=",.0f")))
+            style_axes(cost_fig)
+            st.plotly_chart(cost_fig, use_container_width=True)
+            close_panel()
+
+        with right:
+            add_panel("LOE per BOE", "Operating efficiency by month", "teal")
+            loe_fig = go.Figure()
+            if not boe_frame.empty:
+                loe_fig.add_scatter(
+                    x=boe_frame["Period"],
+                    y=boe_frame["LOE_per_BOE"],
+                    name="LOE / BOE",
+                    mode="lines+markers",
+                    line=dict(color=C["teal"], width=2.5),
+                    marker=dict(size=7, color=C["teal"], line=dict(width=2, color="#ffffff")),
+                    fill="tozeroy",
+                    fillcolor=C["teal_fill"],
+                    hovertemplate="%{x}<br>$%{y:.2f} / BOE<extra></extra>",
+                )
+            loe_fig.update_layout(**plot_layout(height=360, yaxis=dict(tickprefix="$", tickformat=",.2f")))
+            style_axes(loe_fig)
+            st.plotly_chart(loe_fig, use_container_width=True)
+            close_panel()
+
+    with cost_t2:
+        left, right = st.columns([2, 3], gap="medium")
+
+        bucket_period = st.selectbox(
+            "Bucket view period",
+            ["All periods"] + (months_sorted[::-1] if months_sorted else []),
+            key="bucket_period",
+        )
+        bucket_filter = st.selectbox(
+            "Bucket filter",
+            ["All buckets", "LOE", "Leasehold", "Capital", "Workover"],
+            key="bucket_filter",
+        )
+
+        cost_base = exp_summary.copy()
+        raw_cost_base = dff[dff["Bucket"].ne("Revenue")].copy() if "Bucket" in dff.columns else dff.copy()
+
+        if bucket_period != "All periods":
+            cost_base = cost_base[cost_base["Period"].eq(bucket_period)]
+            raw_cost_base = raw_cost_base[raw_cost_base["Period"].eq(bucket_period)]
+        if bucket_filter != "All buckets":
+            cost_base = cost_base[cost_base["Bucket"].eq(bucket_filter)]
+            raw_cost_base = raw_cost_base[raw_cost_base["Bucket"].eq(bucket_filter)]
+
+        acct_roll = (
+            raw_cost_base.groupby(["Bucket", "Account", "AccountDesc"], as_index=False)["AmountAdj"]
+            .sum()
+            .sort_values("AmountAdj", ascending=False)
+        )
+        acct_roll = acct_roll[acct_roll["AmountAdj"].abs() > 0.01]
+
+        with left:
+            add_panel("Spend by Bucket", "Mix of total expense under current filters", "amber")
+            pie_base = cost_base.groupby("Bucket", as_index=False)["Amount"].sum()
+            fig4 = go.Figure(
+                go.Pie(
+                    labels=pie_base["Bucket"],
+                    values=pie_base["Amount"],
+                    hole=0.58,
+                    marker=dict(
+                        colors=[
+                            C["loe"] if b == "LOE" else
+                            C["leasehold"] if b == "Leasehold" else
+                            C["capital"] if b == "Capital" else
+                            C["workover"] if b == "Workover" else
+                            C["slate"]
+                            for b in pie_base["Bucket"]
+                        ],
+                        line=dict(color="#ffffff", width=3),
+                    ),
+                    textinfo="label+percent",
                     textfont=dict(family=MF, size=10),
-                    hovertemplate="%{y}: $%{x:,.0f}<extra></extra>",
-                ))
-                fw_top.update_layout(**bl(height=max(340, pw_top*28),
-                                         xaxis=dict(tickprefix="$", tickformat=",.0f"),
-                                         yaxis=dict(autorange="reversed"),
-                                         margin=dict(t=8, b=32, l=220, r=90)))
-                sax(fw_top)
-                st.plotly_chart(fw_top, use_container_width=True, key="pl_well_top")
-                st.markdown("</div>", unsafe_allow_html=True)
-            with TR:
-                st.markdown(f'<div class="panel red"><div class="panel-title">Bottom {pw_top} Wells — {pw_metric}</div><div class="panel-sub">{pw_period}</div>', unsafe_allow_html=True)
-                fw_bot = go.Figure(go.Bar(
-                    x=bot_wells[metric_col], y=bot_wells["Well"], orientation="h",
-                    marker_color=bot_wells[metric_col].apply(lambda v: C["gas"] if v >= 0 else C["ded"]),
-                    marker_line_width=0,
-                    text=bot_wells[metric_col].apply(fmt), textposition="outside",
-                    textfont=dict(family=MF, size=10),
-                    hovertemplate="%{y}: $%{x:,.0f}<extra></extra>",
-                ))
-                fw_bot.update_layout(**bl(height=max(340, pw_top*28),
-                                         xaxis=dict(tickprefix="$", tickformat=",.0f"),
-                                         yaxis=dict(autorange="reversed"),
-                                         margin=dict(t=8, b=32, l=220, r=90)))
-                sax(fw_bot)
-                st.plotly_chart(fw_bot, use_container_width=True, key="pl_well_bot")
-                st.markdown("</div>", unsafe_allow_html=True)
-            with st.expander("Full well P&L table"):
-                tbl_w = well_pl.sort_values("Net_Income", ascending=False).copy()
-                for col in ["Net_Rev","LOE","Workover","OpEx","Leasehold","Capital","Total_Exp",
-                            "Net_Income","Field_EBITDA","Net_Less_Cap"]:
-                    tbl_w[col] = tbl_w[col].apply(lambda v: f"${v:,.0f}")
-                tbl_w = tbl_w.rename(columns={
-                    "Net_Rev":"Net Rev","OpEx":"OpEx","Total_Exp":"Total Exp",
-                    "Net_Income":"Net Income","Field_EBITDA":"Field EBITDA","Net_Less_Cap":"Net Less Cap",
-                })
-                st.dataframe(tbl_w, use_container_width=True, hide_index=True)
+                    hovertemplate="%{label}: $%{value:,.0f}<extra></extra>",
+                )
+            )
+            total_sel = float(pie_base["Amount"].sum()) if not pie_base.empty else 0.0
+            fig4.update_layout(
+                height=340,
+                showlegend=False,
+                paper_bgcolor=BG,
+                margin=dict(t=10, b=10, l=10, r=10),
+                annotations=[
+                    dict(
+                        x=0.5, y=0.5, showarrow=False,
+                        text=f"<b>{fmt_currency(total_sel)}</b><br><span style='font-size:10px;color:#94a3b8'>Selected</span>",
+                        font=dict(family=PF, size=18, color="#0f172a"),
+                    )
+                ],
+            )
+            st.plotly_chart(fig4, use_container_width=True)
+            close_panel()
 
-    # ── P&L Tab 4: Margin & Trend Analysis ────────────────────────────────────
-    with pltab4:
-        st.markdown('<div class="panel indigo"><div class="panel-title">Margin Trend Analysis</div><div class="panel-sub">EBITDA margin · Net margin · Deduction rate — all periods</div>', unsafe_allow_html=True)
+        with right:
+            add_panel("Top GL Accounts", "Largest spend lines under current filters", "red")
+            top_accounts = acct_roll.head(15).copy()
+            top_accounts["Label"] = top_accounts.apply(
+                lambda r: f"{int(r['Account'])} - {r['AccountDesc']}" if pd.notna(r["Account"]) and str(r["AccountDesc"]).strip() else str(r["Account"]),
+                axis=1,
+            )
+            fig5 = go.Figure(
+                go.Bar(
+                    x=top_accounts["AmountAdj"],
+                    y=top_accounts["Label"],
+                    orientation="h",
+                    marker_color=[
+                        C["loe"] if b == "LOE" else
+                        C["leasehold"] if b == "Leasehold" else
+                        C["capital"] if b == "Capital" else
+                        C["workover"] if b == "Workover" else
+                        C["slate"]
+                        for b in top_accounts["Bucket"]
+                    ],
+                    text=top_accounts["AmountAdj"].apply(fmt_currency),
+                    textposition="outside",
+                    hovertemplate="%{y}<br>$%{x:,.0f}<extra></extra>",
+                )
+            )
+            fig5.update_layout(
+                **plot_layout(
+                    height=340,
+                    xaxis=dict(tickprefix="$", tickformat=",.0f"),
+                    yaxis=dict(autorange="reversed"),
+                    margin=dict(t=12, r=90, b=36, l=240),
+                )
+            )
+            style_axes(fig5)
+            st.plotly_chart(fig5, use_container_width=True)
 
-        f_mg = go.Figure()
-        f_mg.add_scatter(x=pl["Period"], y=pl["EBITDA_Margin"], name="Field EBITDA Margin %",
-                         line=dict(color=C["gas"], width=2.5), mode="lines+markers",
-                         marker=dict(size=6, color=C["gas"], line=dict(color="#fff", width=2)),
-                         hovertemplate="%{x}: %{y:.1f}%<extra></extra>")
-        f_mg.add_scatter(x=pl["Period"], y=pl["Net_Margin"], name="Net Margin %",
-                         line=dict(color=C["net"], width=2.5), mode="lines+markers",
-                         marker=dict(size=6, color=C["net"], line=dict(color="#fff", width=2)),
-                         hovertemplate="%{x}: %{y:.1f}%<extra></extra>")
-        f_mg.add_scatter(x=pl["Period"], y=pl["Ded_Rate"], name="Deduction Rate %",
-                         line=dict(color=C["ded"], width=1.5, dash="dot"), mode="lines+markers",
-                         marker=dict(size=5, color=C["ded"], line=dict(color="#fff", width=1.5)),
-                         hovertemplate="%{x}: %{y:.1f}%<extra></extra>")
-        f_mg.add_hline(y=0, line_color="#d4d9e8", line_width=1)
-        f_mg.update_layout(**bl(height=340, yaxis=dict(ticksuffix="%", tickformat=".1f")))
-        sax(f_mg)
-        st.plotly_chart(f_mg, use_container_width=True, key="margin_trend")
-        st.markdown("</div>", unsafe_allow_html=True)
+            with st.expander("Full GL account table"):
+                acct_tbl = acct_roll.copy()
+                acct_tbl["Amount"] = acct_tbl["AmountAdj"].apply(lambda x: fmt_currency(x, 0))
+                acct_tbl = acct_tbl.rename(columns={"AccountDesc": "Description"})
+                st.dataframe(acct_tbl[["Bucket", "Account", "Description", "Amount"]], use_container_width=True, hide_index=True)
+            close_panel()
 
-        # MoM waterfall of net income changes
-        st.markdown('<div class="panel"><div class="panel-title">Month-over-Month Net Income Bridge</div><div class="panel-sub">Period-to-period change in net income — variance attribution</div>', unsafe_allow_html=True)
+    with cost_t3:
+        rank_period = st.selectbox(
+            "Cost ranking period",
+            ["All periods"] + (months_sorted[::-1] if months_sorted else []),
+            key="cost_rank_period",
+        )
+        rank_bucket = st.selectbox(
+            "Cost ranking bucket",
+            ["All buckets", "LOE", "Leasehold", "Capital", "Workover"],
+            key="cost_rank_bucket",
+        )
+        rank_n = st.slider("Top cost wells", 5, 30, 12, key="cost_rank_n")
 
-        if len(pl) >= 2:
-            mom_labels = []
-            mom_vals   = []
-            mom_colors = []
-            mom_bases  = []
-            running_mom = pl["Net_Income"].iloc[0]
+        cost_rank_base = exp_summary.copy()
+        if rank_period != "All periods":
+            cost_rank_base = cost_rank_base[cost_rank_base["Period"].eq(rank_period)]
+        if rank_bucket != "All buckets":
+            cost_rank_base = cost_rank_base[cost_rank_base["Bucket"].eq(rank_bucket)]
 
-            mom_labels.append(pl["Period"].iloc[0])
-            mom_vals.append(running_mom)
-            mom_colors.append("#1040a8")
-            mom_bases.append(0)
+        well_cost_rank = (
+            cost_rank_base.groupby("Well", as_index=False)["Amount"]
+            .sum()
+            .sort_values("Amount", ascending=False)
+            .head(rank_n)
+        )
 
-            for i in range(1, len(pl)):
-                delta = pl["Net_Income"].iloc[i] - pl["Net_Income"].iloc[i-1]
-                mom_labels.append(pl["Period"].iloc[i])
-                mom_vals.append(abs(delta))
-                mom_colors.append("#047857" if delta >= 0 else "#c81e1e")
-                mom_bases.append(min(pl["Net_Income"].iloc[i-1], pl["Net_Income"].iloc[i]))
+        add_panel("Top Wells by Cost", "Which assets are driving spend", "red")
+        fig6 = go.Figure(
+            go.Bar(
+                x=well_cost_rank["Amount"],
+                y=well_cost_rank["Well"],
+                orientation="h",
+                marker_color=C["red"],
+                text=well_cost_rank["Amount"].apply(fmt_currency),
+                textposition="outside",
+                hovertemplate="%{y}<br>$%{x:,.0f}<extra></extra>",
+            )
+        )
+        fig6.update_layout(
+            **plot_layout(
+                height=max(380, rank_n * 30),
+                xaxis=dict(tickprefix="$", tickformat=",.0f"),
+                yaxis=dict(autorange="reversed"),
+                margin=dict(t=12, r=90, b=36, l=220),
+            )
+        )
+        style_axes(fig6)
+        st.plotly_chart(fig6, use_container_width=True)
 
-            mom_labels.append(f"Total ({months_sorted[0]}–{months_sorted[-1]})" if len(months_sorted) > 1 else "Total")
-            mom_vals.append(abs(cum_ni_all))
-            mom_colors.append("#047857" if cum_ni_all >= 0 else "#c81e1e")
-            mom_bases.append(0)
+        with st.expander("Full well cost table"):
+            pivot_cost = (
+                cost_rank_base.pivot_table(index="Well", columns="Period", values="Amount", aggfunc="sum", fill_value=0.0)
+                .reset_index()
+            )
+            if not pivot_cost.empty:
+                pivot_cost["Total"] = pivot_cost.drop(columns=["Well"]).sum(axis=1)
+                pivot_cost = pivot_cost.sort_values("Total", ascending=False)
+                for col in pivot_cost.columns[1:]:
+                    pivot_cost[col] = pivot_cost[col].apply(lambda x: fmt_currency(x, 0))
+            st.dataframe(pivot_cost, use_container_width=True, hide_index=True)
+        close_panel()
 
-            f_mom = go.Figure()
-            f_mom.add_bar(x=mom_labels, y=mom_bases, marker_color="rgba(0,0,0,0)", showlegend=False, hoverinfo="skip")
-            f_mom.add_bar(x=mom_labels, y=mom_vals, marker_color=mom_colors, marker_line_width=0,
-                          text=[fmt(v * (1 if c == "#047857" or c == "#1040a8" else -1))
-                                for v, c in zip(mom_vals, mom_colors)],
-                          textposition="outside", textfont=dict(family=MF, size=10),
-                          showlegend=False,
-                          hovertemplate="%{x}: $%{y:,.0f}<extra></extra>")
-            f_mom.update_layout(**bl(barmode="stack", height=340,
-                                     yaxis=dict(tickprefix="$", tickformat=",.0f")))
-            sax(f_mom)
-            st.plotly_chart(f_mom, use_container_width=True, key="mom_bridge")
+    with cost_t4:
+        available_cost_wells = sorted(exp_summary["Well"].unique().tolist()) if not exp_summary.empty else []
+        if not available_cost_wells:
+            st.info("No expense data is available for well-level drilldown.")
         else:
-            st.info("Need at least 2 periods for MoM bridge.")
-        st.markdown("</div>", unsafe_allow_html=True)
+            left, right = st.columns([1, 4], gap="medium")
+            with left:
+                detail_well = st.selectbox("Well", available_cost_wells, key="detail_well")
+                detail_period = st.selectbox("Period", ["All periods"] + (months_sorted[::-1] if months_sorted else []), key="detail_period")
+            with right:
+                detail_raw = dff[dff["Bucket"].ne("Revenue") & dff["Well"].eq(detail_well)].copy()
+                if detail_period != "All periods":
+                    detail_raw = detail_raw[detail_raw["Period"].eq(detail_period)]
 
-        # Revenue vs Cost efficiency scatter (per-well)
-        st.markdown('<div class="panel"><div class="panel-title">Well Efficiency Scatter — Revenue vs Cost</div><div class="panel-sub">Bubble size = Net Income · X = Net Revenue · Y = Total Cost · Efficient wells: top-left</div>', unsafe_allow_html=True)
-        if not well_pl.empty and len(well_pl) > 1:
-            scatter_df = well_pl.copy()
-            scatter_df = scatter_df[(scatter_df["Net_Rev"] > 0) | (scatter_df["Total_Exp"] > 0)]
-            bubble_sz  = scatter_df["Net_Income"].apply(lambda v: max(abs(v)**0.5 / 10, 4))
-            bubble_clr = scatter_df["Net_Income"].apply(lambda v: "#047857" if v >= 0 else "#c81e1e")
-            f_sc = go.Figure(go.Scatter(
-                x=scatter_df["Net_Rev"], y=scatter_df["Total_Exp"],
-                mode="markers+text",
-                text=scatter_df["Well"].apply(lambda w: w[:12] + "…" if len(w) > 12 else w),
-                textposition="top center", textfont=dict(family=MF, size=8, color="#6b7a99"),
-                marker=dict(size=bubble_sz, color=bubble_clr,
-                            line=dict(color="#fff", width=1.5), opacity=0.85),
-                hovertemplate="<b>%{text}</b><br>Net Rev: $%{x:,.0f}<br>Total Cost: $%{y:,.0f}<extra></extra>",
-            ))
-            # Add break-even line
-            max_ax = max(scatter_df["Net_Rev"].max(), scatter_df["Total_Exp"].max()) * 1.1
-            f_sc.add_scatter(x=[0, max_ax], y=[0, max_ax], mode="lines",
-                             line=dict(color="#d4d9e8", width=1, dash="dot"),
-                             showlegend=False, hoverinfo="skip", name="Break-even")
-            f_sc.update_layout(**bl(height=380,
-                                    xaxis=dict(tickprefix="$", tickformat=",.0f", title="Net Revenue"),
-                                    yaxis=dict(tickprefix="$", tickformat=",.0f", title="Total Cost"),
-                                    margin=dict(t=16, b=48, l=60, r=16)))
-            sax(f_sc)
-            st.plotly_chart(f_sc, use_container_width=True, key="well_scatter")
+                if detail_raw.empty:
+                    st.info("No expense lines are available under the selected filters.")
+                else:
+                    bucket_totals = detail_raw.groupby("Bucket", as_index=False)["AmountAdj"].sum()
+                    total_well_cost = float(bucket_totals["AmountAdj"].sum())
+
+                    add_panel(f"Well Cost Detail — {detail_well}", "Bucket totals and line-item exposure", "purple")
+                    stats = bucket_totals.set_index("Bucket")["AmountAdj"].to_dict()
+                    stat_df = pd.DataFrame(
+                        {
+                            "Metric": ["LOE", "Leasehold", "Capital", "Workover", "Total"],
+                            "Value": [
+                                fmt_currency(stats.get("LOE", 0.0)),
+                                fmt_currency(stats.get("Leasehold", 0.0)),
+                                fmt_currency(stats.get("Capital", 0.0)),
+                                fmt_currency(stats.get("Workover", 0.0)),
+                                fmt_currency(total_well_cost),
+                            ],
+                        }
+                    )
+                    st.dataframe(stat_df, use_container_width=True, hide_index=True)
+
+                    acct_detail = (
+                        detail_raw.groupby(["Bucket", "Account", "AccountDesc"], as_index=False)["AmountAdj"]
+                        .sum()
+                        .sort_values("AmountAdj", ascending=False)
+                    )
+                    acct_detail["Label"] = acct_detail.apply(
+                        lambda r: f"{int(r['Account'])} - {r['AccountDesc']}" if pd.notna(r["Account"]) and str(r["AccountDesc"]).strip() else str(r["Account"]),
+                        axis=1,
+                    )
+                    fig7 = go.Figure(
+                        go.Bar(
+                            x=acct_detail["AmountAdj"],
+                            y=acct_detail["Label"],
+                            orientation="h",
+                            marker_color=[
+                                C["loe"] if b == "LOE" else
+                                C["leasehold"] if b == "Leasehold" else
+                                C["capital"] if b == "Capital" else
+                                C["workover"] if b == "Workover" else
+                                C["slate"]
+                                for b in acct_detail["Bucket"]
+                            ],
+                            text=acct_detail["AmountAdj"].apply(fmt_currency),
+                            textposition="outside",
+                            hovertemplate="%{y}<br>$%{x:,.0f}<extra></extra>",
+                        )
+                    )
+                    fig7.update_layout(
+                        **plot_layout(
+                            height=max(340, len(acct_detail) * 28),
+                            xaxis=dict(tickprefix="$", tickformat=",.0f"),
+                            yaxis=dict(autorange="reversed"),
+                            margin=dict(t=12, r=90, b=36, l=260),
+                        )
+                    )
+                    style_axes(fig7)
+                    st.plotly_chart(fig7, use_container_width=True)
+
+                    if detail_period == "All periods":
+                        trend_df = (
+                            detail_raw.groupby(["Period", "Bucket"], as_index=False)["AmountAdj"]
+                            .sum()
+                            .pivot_table(index="Period", columns="Bucket", values="AmountAdj", fill_value=0.0)
+                            .reset_index()
+                            .sort_values("Period")
+                        )
+                        for bucket in ["LOE", "Leasehold", "Capital", "Workover"]:
+                            if bucket not in trend_df.columns:
+                                trend_df[bucket] = 0.0
+                        fig8 = go.Figure()
+                        fig8.add_bar(x=trend_df["Period"], y=trend_df["LOE"], name="LOE", marker_color=C["loe"])
+                        fig8.add_bar(x=trend_df["Period"], y=trend_df["Leasehold"], name="Leasehold", marker_color=C["leasehold"])
+                        fig8.add_bar(x=trend_df["Period"], y=trend_df["Capital"], name="Capital", marker_color=C["capital"])
+                        fig8.add_bar(x=trend_df["Period"], y=trend_df["Workover"], name="Workover", marker_color=C["workover"])
+                        fig8.update_layout(**plot_layout(height=320, barmode="stack", yaxis=dict(tickprefix="$", tickformat=",.0f")))
+                        style_axes(fig8)
+                        st.plotly_chart(fig8, use_container_width=True)
+
+                    with st.expander("Raw line-item table"):
+                        acct_tbl = acct_detail.copy()
+                        acct_tbl["Amount"] = acct_tbl["AmountAdj"].apply(lambda x: fmt_currency(x, 0))
+                        acct_tbl = acct_tbl.rename(columns={"AccountDesc": "Description"})
+                        st.dataframe(acct_tbl[["Bucket", "Account", "Description", "Amount"]], use_container_width=True, hide_index=True)
+                    close_panel()
+
+with tab_pl:
+    pl_t1, pl_t2, pl_t3, pl_t4 = st.tabs(
+        ["Monthly P&L", "Full P&L Waterfall", "Well P&L", "Margins & Trend"]
+    )
+
+    with pl_t1:
+        add_panel("Monthly P&L Table", "Institutional bridge from gross revenue to net income", "green")
+        pnl_tbl = pl.copy()
+        if not pnl_tbl.empty:
+            display_cols = [
+                "Period", "Gross", "Deductions", "Net_Rev", "LOE", "Workover",
+                "OpEx", "Leasehold", "Capital", "Total_Exp", "Field_EBITDA", "Net_Income",
+                "EBITDA_Margin", "Net_Margin"
+            ]
+            pnl_tbl = pnl_tbl[display_cols].copy()
+            rename_map = {
+                "Net_Rev": "Net Revenue",
+                "LOE": "LOE",
+                "Workover": "Workover",
+                "OpEx": "OpEx",
+                "Leasehold": "Leasehold",
+                "Capital": "Capital",
+                "Total_Exp": "Total Expense",
+                "Field_EBITDA": "Field EBITDA",
+                "Net_Income": "Net Income",
+                "EBITDA_Margin": "EBITDA Margin %",
+                "Net_Margin": "Net Margin %",
+                "Gross": "Gross Revenue",
+                "Deductions": "Deductions",
+            }
+            pnl_tbl = pnl_tbl.rename(columns=rename_map)
+            for col in pnl_tbl.columns:
+                if col in {"Period", "EBITDA Margin %", "Net Margin %"}:
+                    continue
+                pnl_tbl[col] = pnl_tbl[col].apply(lambda x: fmt_currency(x, 0))
+            pnl_tbl["EBITDA Margin %"] = pl["EBITDA_Margin"].apply(lambda x: fmt_pct(x))
+            pnl_tbl["Net Margin %"] = pl["Net_Margin"].apply(lambda x: fmt_pct(x))
+        st.dataframe(pnl_tbl, use_container_width=True, hide_index=True)
+        close_panel()
+
+    with pl_t2:
+        wf_period = st.selectbox(
+            "Waterfall period",
+            months_sorted[::-1] if months_sorted else ["—"],
+            key="pl_wf_period",
+        )
+        row = pl.loc[pl["Period"].eq(wf_period)].copy() if not pl.empty else pd.DataFrame()
+        if row.empty:
+            st.info("No P&L data is available for the selected period.")
         else:
-            st.info("Need per-well data to render scatter.")
-        st.markdown("</div>", unsafe_allow_html=True)
+            r = row.iloc[0]
+            labels = ["Gross Revenue", "Deductions", "Net Revenue", "LOE", "Workover", "Leasehold", "Capital", "Net Income"]
+            measures = ["absolute", "relative", "total", "relative", "relative", "relative", "relative", "total"]
+            values = [
+                float(r["Gross"]),
+                -float(r["Deductions"]),
+                float(r["Net_Rev"]),
+                -float(r["LOE"]),
+                -float(r["Workover"]),
+                -float(r["Leasehold"]),
+                -float(r["Capital"]),
+                float(r["Net_Income"]),
+            ]
+            add_panel("P&L Waterfall", "From gross revenue to bottom-line net income", "purple")
+            fig9 = go.Figure(
+                go.Waterfall(
+                    x=labels,
+                    y=values,
+                    measure=measures,
+                    connector=dict(line=dict(color="#94a3b8")),
+                    increasing=dict(marker=dict(color=C["green"])),
+                    decreasing=dict(marker=dict(color=C["red"])),
+                    totals=dict(marker=dict(color=C["purple"])),
+                    text=[fmt_currency(v) for v in values],
+                    textposition="outside",
+                    hovertemplate="%{x}: $%{y:,.0f}<extra></extra>",
+                )
+            )
+            fig9.update_layout(**plot_layout(height=440, yaxis=dict(tickprefix="$", tickformat=",.0f")))
+            style_axes(fig9)
+            st.plotly_chart(fig9, use_container_width=True)
+            close_panel()
+
+    with pl_t3:
+        metric = st.selectbox(
+            "Well P&L metric",
+            ["Net Income", "Field EBITDA", "Net Revenue", "Capital"],
+            key="well_pl_metric",
+        )
+        well_period = st.selectbox(
+            "Well P&L period",
+            ["All periods"] + (months_sorted[::-1] if months_sorted else []),
+            key="well_pl_period",
+        )
+        well_n = st.slider("Top / bottom wells", 5, 20, 10, key="well_pl_n")
+
+        well_rev = summary.copy()
+        well_cost = exp_summary.copy()
+        if well_period != "All periods":
+            well_rev = well_rev[well_rev["Period"].eq(well_period)]
+            well_cost = well_cost[well_cost["Period"].eq(well_period)]
+
+        well_rev_agg = (
+            well_rev.groupby("Well", as_index=False)
+            .agg(Net_Rev=("Net_Revenue", "sum"))
+        )
+        well_cost_piv = (
+            well_cost.pivot_table(index="Well", columns="Bucket", values="Amount", aggfunc="sum", fill_value=0.0)
+            .reset_index()
+            if not well_cost.empty
+            else pd.DataFrame(columns=["Well"])
+        )
+        for bucket in ["LOE", "Leasehold", "Capital", "Workover"]:
+            if bucket not in well_cost_piv.columns:
+                well_cost_piv[bucket] = 0.0
+
+        well_pl = well_rev_agg.merge(well_cost_piv, on="Well", how="outer").fillna(0.0)
+        if not well_pl.empty:
+            well_pl["OpEx"] = well_pl["LOE"] + well_pl["Workover"]
+            well_pl["Total_Exp"] = well_pl["LOE"] + well_pl["Leasehold"] + well_pl["Capital"] + well_pl["Workover"]
+            well_pl["Field_EBITDA"] = well_pl["Net_Rev"] - well_pl["OpEx"]
+            well_pl["Net_Income"] = well_pl["Net_Rev"] - well_pl["Total_Exp"]
+
+        metric_map = {
+            "Net Income": "Net_Income",
+            "Field EBITDA": "Field_EBITDA",
+            "Net Revenue": "Net_Rev",
+            "Capital": "Capital",
+        }
+        metric_col = metric_map[metric]
+
+        top_wells = well_pl.sort_values(metric_col, ascending=False).head(well_n)
+        bot_wells = well_pl.sort_values(metric_col, ascending=True).head(well_n)
+
+        left, right = st.columns(2, gap="medium")
+        with left:
+            add_panel(f"Top {well_n} Wells — {metric}", "Best-performing assets under current filters", "green")
+            fig10 = go.Figure(
+                go.Bar(
+                    x=top_wells[metric_col],
+                    y=top_wells["Well"],
+                    orientation="h",
+                    marker_color=[category_color_from_sign(v) for v in top_wells[metric_col]],
+                    text=top_wells[metric_col].apply(fmt_currency),
+                    textposition="outside",
+                    hovertemplate="%{y}<br>$%{x:,.0f}<extra></extra>",
+                )
+            )
+            fig10.update_layout(
+                **plot_layout(
+                    height=max(340, well_n * 28),
+                    xaxis=dict(tickprefix="$", tickformat=",.0f"),
+                    yaxis=dict(autorange="reversed"),
+                    margin=dict(t=12, r=90, b=36, l=220),
+                )
+            )
+            style_axes(fig10)
+            st.plotly_chart(fig10, use_container_width=True)
+            close_panel()
+
+        with right:
+            add_panel(f"Bottom {well_n} Wells — {metric}", "Weakest-performing assets under current filters", "red")
+            fig11 = go.Figure(
+                go.Bar(
+                    x=bot_wells[metric_col],
+                    y=bot_wells["Well"],
+                    orientation="h",
+                    marker_color=[category_color_from_sign(v) for v in bot_wells[metric_col]],
+                    text=bot_wells[metric_col].apply(fmt_currency),
+                    textposition="outside",
+                    hovertemplate="%{y}<br>$%{x:,.0f}<extra></extra>",
+                )
+            )
+            fig11.update_layout(
+                **plot_layout(
+                    height=max(340, well_n * 28),
+                    xaxis=dict(tickprefix="$", tickformat=",.0f"),
+                    yaxis=dict(autorange="reversed"),
+                    margin=dict(t=12, r=90, b=36, l=220),
+                )
+            )
+            style_axes(fig11)
+            st.plotly_chart(fig11, use_container_width=True)
+            close_panel()
+
+        with st.expander("Full well P&L table"):
+            table = well_pl.sort_values("Net_Income", ascending=False).copy()
+            if not table.empty:
+                for col in ["Net_Rev", "LOE", "Workover", "OpEx", "Leasehold", "Capital", "Total_Exp", "Field_EBITDA", "Net_Income"]:
+                    table[col] = table[col].apply(lambda x: fmt_currency(x, 0))
+                table = table.rename(
+                    columns={
+                        "Net_Rev": "Net Revenue",
+                        "Total_Exp": "Total Expense",
+                        "Field_EBITDA": "Field EBITDA",
+                        "Net_Income": "Net Income",
+                    }
+                )
+            st.dataframe(table, use_container_width=True, hide_index=True)
+
+    with pl_t4:
+        left, right = st.columns([3, 2], gap="medium")
+
+        with left:
+            add_panel("Margin Trend", "EBITDA margin, net margin, and deduction rate by month", "teal")
+            fig12 = go.Figure()
+            if not pl.empty:
+                fig12.add_scatter(
+                    x=pl["Period"], y=pl["EBITDA_Margin"], name="EBITDA Margin %",
+                    mode="lines+markers", line=dict(color=C["green"], width=2.6),
+                    marker=dict(size=7, color=C["green"], line=dict(width=2, color="#ffffff")),
+                    hovertemplate="%{x}<br>%{y:.1f}%<extra></extra>",
+                )
+                fig12.add_scatter(
+                    x=pl["Period"], y=pl["Net_Margin"], name="Net Margin %",
+                    mode="lines+markers", line=dict(color=C["purple"], width=2.6),
+                    marker=dict(size=7, color=C["purple"], line=dict(width=2, color="#ffffff")),
+                    hovertemplate="%{x}<br>%{y:.1f}%<extra></extra>",
+                )
+                fig12.add_scatter(
+                    x=pl["Period"], y=pl["Deduction_Rate"], name="Deduction Rate %",
+                    mode="lines+markers", line=dict(color=C["red"], width=1.8, dash="dot"),
+                    marker=dict(size=6, color=C["red"], line=dict(width=1.5, color="#ffffff")),
+                    hovertemplate="%{x}<br>%{y:.1f}%<extra></extra>",
+                )
+            fig12.update_layout(**plot_layout(height=360, yaxis=dict(ticksuffix="%", tickformat=",.1f")))
+            style_axes(fig12)
+            st.plotly_chart(fig12, use_container_width=True)
+            close_panel()
+
+        with right:
+            add_panel("Cumulative Earnings Curve", "Field EBITDA and net income build over time", "purple")
+            fig13 = go.Figure()
+            if not pl.empty:
+                fig13.add_scatter(
+                    x=pl["Period"], y=pl["Cum_EBITDA"], name="Cum. EBITDA",
+                    mode="lines+markers", line=dict(color=C["green"], width=2.6),
+                    marker=dict(size=7, color=C["green"], line=dict(width=2, color="#ffffff")),
+                    fill="tozeroy", fillcolor=C["green_fill"],
+                    hovertemplate="%{x}<br>$%{y:,.0f}<extra></extra>",
+                )
+                fig13.add_scatter(
+                    x=pl["Period"], y=pl["Cum_NI"], name="Cum. Net Income",
+                    mode="lines+markers", line=dict(color=C["purple"], width=2.6),
+                    marker=dict(size=7, color=C["purple"], line=dict(width=2, color="#ffffff")),
+                    hovertemplate="%{x}<br>$%{y:,.0f}<extra></extra>",
+                )
+            fig13.update_layout(**plot_layout(height=360, yaxis=dict(tickprefix="$", tickformat=",.0f")))
+            style_axes(fig13)
+            st.plotly_chart(fig13, use_container_width=True)
+            close_panel()
+
+        add_panel("FP&A Commentary", "Auto-generated operating readout from the selected portfolio", "blue")
+        commentary = []
+        commentary.append(
+            f"In {last_period or 'the latest month'}, gross revenue was {fmt_currency(last_gross)} and converted to net revenue of {fmt_currency(last_net)}, implying {fmt_pct(gross_to_net)} gross-to-net retention."
+        )
+        commentary.append(
+            f"Field EBITDA came in at {fmt_currency(last_ebitda)} and net income at {fmt_currency(last_ni)}. Latest net margin was {fmt_pct(last_net_margin)}."
+        )
+        commentary.append(
+            f"Latest cost mix: LOE {fmt_currency(loe_last)}, workover {fmt_currency(workover_last)}, leasehold {fmt_currency(leasehold_last)}, and capital {fmt_currency(capital_last)}."
+        )
+        if not pd.isna(mom_pct(last_ebitda, prev_ebitda)):
+            trend_dir = "up" if mom_pct(last_ebitda, prev_ebitda) >= 0 else "down"
+            commentary.append(
+                f"Field EBITDA was {trend_dir} {abs(mom_pct(last_ebitda, prev_ebitda)):.1f}% versus {prev_period}."
+            )
+        if not boe_frame.empty and not np.isnan(latest_loe_per_boe):
+            commentary.append(
+                f"Unit cost efficiency tracked at {fmt_currency(latest_loe_per_boe, 2)} per BOE in {last_period}."
+            )
+
+        st.write(" ".join(commentary))
+        close_panel()
+
+st.markdown(
+    "<div class='footer-note'>Model note: Field EBITDA is defined here as net revenue less LOE and workover. Net income is net revenue less LOE, workover, leasehold, and capital.</div>",
+    unsafe_allow_html=True,
+)
