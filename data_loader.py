@@ -28,7 +28,14 @@ CAPITAL_RANGE   = (9200, 9399)   # Capital costs
 WORKOVER_RANGE  = (9500, 9598)   # LOE Workover
 IGNORE_ACCTS    = {9599}         # JIB billing — excluded
 
-def _is_expense(acct):
+def _extract_company(filename):
+    """Extract company code from filename (e.g., '40ACR_FEB_REV.xlsx' -> '40ACR')"""
+    filename_upper = filename.upper()
+    if "40ACR" in filename_upper:
+        return "40ACR"
+    elif "FAEII" in filename_upper:
+        return "FAEII"
+    return "Unknown"
     if acct in IGNORE_ACCTS:
         return False
     return (
@@ -102,7 +109,7 @@ def _backfill(df):
 def _clean_col(name):
     return str(name).strip("{}").strip()
 
-def _normalize(df):
+def _normalize(df, filename=""):
     # Strip {} from column names
     df = df.rename(columns={c: _clean_col(c) for c in df.columns})
 
@@ -147,6 +154,9 @@ def _normalize(df):
     df["AcqCode"]   = df["AcqCode"].fillna("Unknown").astype(str).str.strip()
     df["AccountDesc"] = df["AccountDesc"].fillna("").astype(str).str.strip()
 
+    # Extract company from filename
+    df["Company"] = _extract_company(filename)
+
     # Revenue sign flip (credits are stored negative in GL)
     df["AmountAdj"] = np.where(df["Account"].isin(REV_ACCOUNTS), -df["Amount"], df["Amount"])
     df["QtyAdj"]    = np.where(df["Account"].isin(REV_ACCOUNTS), -df["Quantity"], df["Quantity"])
@@ -173,7 +183,7 @@ def ingest_file(uploaded_file):
             raw = pd.read_excel(BytesIO(file_bytes))
         else:
             raw = pd.read_csv(BytesIO(file_bytes))
-        new_df = _normalize(raw)
+        new_df = _normalize(raw, uploaded_file.name)
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -207,8 +217,10 @@ def _save_local(df, fhash, filename, rows, periods, wells):
         meta = {"files": []}
         if META_FILE.exists():
             meta = json.loads(META_FILE.read_text())
+        company = _extract_company(filename)
         meta["files"].append({
             "hash": fhash, "filename": filename,
+            "company": company,
             "loaded_at": datetime.now().isoformat(),
             "rows": rows, "periods": periods, "wells": wells,
         })
