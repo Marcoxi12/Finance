@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import json
+from pathlib import Path
 
 from data_loader import load_all_data, get_summary, get_expense_summary, ingest_file
 
@@ -101,6 +103,34 @@ html, body, [class*="css"], .stApp {
     text-transform:uppercase;
     color:#6780a8 !important;
     margin: 14px 0 8px 0;
+}
+.file-item {
+    background: #122038;
+    border: 1px solid #233757;
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: #a4b4cf;
+}
+.file-item-name {
+    flex: 1;
+    word-break: break-word;
+    margin-right: 8px;
+}
+.file-item-close {
+    cursor: pointer;
+    color: #dc2626;
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+.file-item-close:hover {
+    background: #1b2b45;
 }
 .header-shell {
     background:
@@ -503,7 +533,7 @@ def close_panel():
 
 
 # =============================================================================
-# LOAD DATA
+# LOAD DATA & FILE MANAGEMENT
 # =============================================================================
 with st.sidebar:
     st.markdown(
@@ -539,6 +569,38 @@ with st.sidebar:
         except Exception as exc:
             st.error(f"Upload failed: {exc}")
 
+    # ── File Management ───────────────────────────────────────────────────────
+    st.markdown('<div class="sb-section">Loaded Files</div>', unsafe_allow_html=True)
+    
+    meta_file = Path("data/uploaded_files.json")
+    if meta_file.exists():
+        try:
+            meta = json.loads(meta_file.read_text())
+            files_list = meta.get("files", [])
+            
+            if files_list:
+                st.markdown(f"**{len(files_list)} file(s) loaded:**", help="Click X to remove file data")
+                for i, file_info in enumerate(files_list):
+                    col1, col2 = st.columns([0.85, 0.15])
+                    with col1:
+                        st.caption(
+                            f"📄 {file_info['filename']}\n"
+                            f"Rows: {file_info.get('rows', 0):,} | Periods: {file_info.get('periods', 0)} | Wells: {file_info.get('wells', 0)}"
+                        )
+                    with col2:
+                        if st.button("✕", key=f"del_{i}", help="Remove this file"):
+                            # Remove file from metadata
+                            meta["files"].pop(i)
+                            meta_file.write_text(json.dumps(meta, indent=2))
+                            st.success("File removed")
+                            st.rerun()
+            else:
+                st.caption("No files loaded yet")
+        except Exception:
+            st.caption("No files loaded yet")
+    else:
+        st.caption("No files loaded yet")
+
     raw = load_all_data()
     if raw is None or len(raw) == 0:
         st.warning("No data loaded yet. Upload a GL export to begin.")
@@ -564,6 +626,17 @@ with st.sidebar:
     df["Bucket"] = df["Bucket"].apply(normalize_str)
     if "AmountAdj" in df.columns:
         df["AmountAdj"] = pd.to_numeric(df["AmountAdj"], errors="coerce").fillna(0.0)
+
+    st.markdown('<div class="sb-section">Company Selection</div>', unsafe_allow_html=True)
+    
+    all_companies = ["40ACR", "FAEII"]
+    sel_companies = st.multiselect(
+        "Companies",
+        options=all_companies,
+        default=all_companies,
+        placeholder="Select companies",
+        label_visibility="collapsed",
+    )
 
     st.markdown('<div class="sb-section">Portfolio Filter</div>', unsafe_allow_html=True)
 
@@ -785,6 +858,7 @@ period_label = (
     else (period_range[0] or "—")
 )
 portfolio_label = f"{selected_well_count} of {total_loaded_wells} wells" if sel_wells else f"All {dff['Well'].nunique()} wells"
+company_label = " + ".join(sel_companies) if sel_companies else "None"
 
 
 # =============================================================================
@@ -793,13 +867,14 @@ portfolio_label = f"{selected_well_count} of {total_loaded_wells} wells" if sel_
 st.markdown(
     f"""
 <div class="header-shell">
-    <div class="header-kicker">Integrated FP&amp;A • Operating Performance • Institutional Dashboard</div>
+    <div class="header-kicker">Integrated FP&amp;A • Operating Analytics • Institutional Dashboard</div>
     <div class="header-row">
         <div>
             <div class="header-title">P&amp;L Command Center <strong>{portfolio_label}</strong></div>
-            <div class="header-sub">Goldman-style operating view: revenue quality, cost discipline, field EBITDA, and net income conversion.</div>
+            <div class="header-sub">Operating Performance view: revenue quality, cost discipline, field EBITDA, and net income conversion across {company_label}.</div>
         </div>
         <div class="badge-row">
+            <div class="h-badge">Companies <strong>{company_label}</strong></div>
             <div class="h-badge">Analysis Period <strong>{period_label}</strong></div>
             <div class="h-badge">Latest Month <strong>{last_period or "—"}</strong></div>
             <div class="h-badge">Coverage <strong>{period_count} period(s)</strong></div>
