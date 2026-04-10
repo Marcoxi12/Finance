@@ -485,8 +485,8 @@ def render_sidebar() -> Tuple[pd.DataFrame, list, list, list, Tuple[Optional[str
         
         # Load data
         if raw_result[0] is None or len(raw_result[0]) == 0:
-    st.warning("No data loaded yet. Upload a GL export to begin.")
-    st.stop()
+        st.warning("No data loaded yet. Upload a GL export to begin.")
+        st.stop()
         
         df, raw, _ = raw_result
         
