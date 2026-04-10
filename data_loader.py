@@ -63,6 +63,7 @@ COL_ALIASES = {
     "AccountDesc": ["{Account Desc}", "Account Desc", "AccountDesc", "GL Description"],
 }
 
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def _is_expense(acct: int) -> bool:
     if acct in IGNORE_ACCTS:
@@ -88,7 +89,7 @@ def _expense_bucket(acct: int) -> str:
 
 
 def _extract_company(filename: str) -> str:
-    filename_upper = str(filename).upper()
+    filename_upper = str(filename or "").upper()
     if "40ACR" in filename_upper:
         return "40ACR"
     if "FAEII" in filename_upper:
@@ -97,7 +98,7 @@ def _extract_company(filename: str) -> str:
 
 
 def _clean_col(name: str) -> str:
-    return str(name).strip("{}").strip()
+    return str(name).strip().strip("{}").strip()
 
 
 def _hash_file(file_bytes: bytes) -> str:
@@ -107,29 +108,47 @@ def _hash_file(file_bytes: bytes) -> str:
 def _backfill(df: pd.DataFrame) -> None:
     if "SubAccount" not in df.columns:
         df["SubAccount"] = ""
+
     if "SubAcctNum" not in df.columns:
         df["SubAcctNum"] = (
-            df["SubAccount"].astype(str).str.strip().replace("", "Unknown").fillna("Unknown")
+            df["SubAccount"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .replace("", "Unknown")
         )
+
     if "Well" not in df.columns and "SubAcctDesc" in df.columns:
         df["Well"] = df["SubAcctDesc"].fillna("Unknown").astype(str).str.strip()
+
     if "AcqCode" not in df.columns:
         df["AcqCode"] = "Unknown"
+
     if "Period" not in df.columns and "EffDate" in df.columns:
-        df["EffDate"] = pd.to_datetime(df["EffDate"], errors="coerce")
-        df["Period"] = df["EffDate"].dt.to_period("M").astype(str)
+        eff = pd.to_datetime(df["EffDate"], errors="coerce")
+        df["EffDate"] = eff
+        df["Period"] = eff.dt.to_period("M").astype(str)
+
     if "Bucket" not in df.columns and "Account" in df.columns:
-        df["Bucket"] = df["Account"].apply(
+        acct_num = pd.to_numeric(df["Account"], errors="coerce")
+        df["Bucket"] = acct_num.apply(
             lambda a: _expense_bucket(int(a)) if pd.notna(a) and _is_expense(int(a)) else "Revenue"
         )
+
     if "AccountDesc" not in df.columns:
         df["AccountDesc"] = ""
+
     if "Company" not in df.columns:
         df["Company"] = "Unknown"
+
     if "AmountAdj" not in df.columns and "Amount" in df.columns:
         df["AmountAdj"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0.0)
+
     if "QtyAdj" not in df.columns:
-        df["QtyAdj"] = 0.0
+        if "Quantity" in df.columns:
+            df["QtyAdj"] = pd.to_numeric(df["Quantity"], errors="coerce").fillna(0.0)
+        else:
+            df["QtyAdj"] = 0.0
 
 
 def _ss() -> Dict:
@@ -146,16 +165,18 @@ def _ss() -> Dict:
                 cached = pd.read_parquet(CACHE_FILE)
                 _backfill(cached)
                 st.session_state["gl_app"]["df"] = cached
-                logger.info(f"Loaded cache with {len(cached)} rows")
+                logger.info("Loaded cache with %s rows", len(cached))
 
             if META_FILE.exists():
                 meta = json.loads(META_FILE.read_text())
                 file_list = meta.get("files", [])
-                st.session_state["gl_app"]["file_hashes"] = {f["hash"] for f in file_list}
+                st.session_state["gl_app"]["file_hashes"] = {
+                    f.get("hash") for f in file_list if f.get("hash")
+                }
                 st.session_state["gl_app"]["files_metadata"] = file_list
-                logger.info(f"Loaded metadata for {len(file_list)} files")
+                logger.info("Loaded metadata for %s files", len(file_list))
         except Exception as e:
-            logger.warning(f"Failed to load cache: {e}")
+            logger.warning("Failed to load cache: %s", e)
 
     return st.session_state["gl_app"]
 
@@ -163,24 +184,34 @@ def _ss() -> Dict:
 def _normalize(df: pd.DataFrame, filename: str = "") -> pd.DataFrame:
     df = df.copy()
 
-    df = df.rename(columns={c: _clean_col(c) for c in df.columns})
+    # Clean incoming column names first
+    df.columns = [_clean_col(c) for c in df.columns]
 
-    resolved = {}
+    # Resolve aliases to canonical names
+    rename_map = {}
+    existing_cols = set(df.columns)
+
     for canon, aliases in COL_ALIASES.items():
-        cleaned_aliases = [_clean_col(a) for a in aliases]
-        for alias in cleaned_aliases:
-            if alias in df.columns:
-                resolved[alias] = canon
+        if canon in existing_cols:
+            continue
+
+        for alias in aliases:
+            cleaned_alias = _clean_col(alias)
+            if cleaned_alias in existing_cols:
+                rename_map[cleaned_alias] = canon
                 break
 
-    df = df.rename(columns=resolved)
+    df = df.rename(columns=rename_map)
 
+    # Ensure optional cols exist
     if "SubAccount" not in df.columns:
         df["SubAccount"] = ""
     if "AccountDesc" not in df.columns:
         df["AccountDesc"] = ""
     if "AcqCode" not in df.columns:
         df["AcqCode"] = "Unknown"
+    if "Quantity" not in df.columns:
+        df["Quantity"] = 0.0
 
     required_cols = ["EffDate", "Account", "SubAcctDesc", "Amount"]
     missing = [col for col in required_cols if col not in df.columns]
@@ -188,13 +219,18 @@ def _normalize(df: pd.DataFrame, filename: str = "") -> pd.DataFrame:
         raise ValueError(f"Required columns not found: {', '.join(missing)}")
 
     df["EffDate"] = pd.to_datetime(df["EffDate"], errors="coerce")
-    df["Account"] = pd.to_numeric(df["Account"], errors="coerce").astype("Int64")
+    df["Account"] = pd.to_numeric(df["Account"], errors="coerce")
     df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0.0)
-    df["Quantity"] = pd.to_numeric(df.get("Quantity", 0), errors="coerce").fillna(0.0)
+    df["Quantity"] = pd.to_numeric(df["Quantity"], errors="coerce").fillna(0.0)
 
-    valid_mask = df["Account"].apply(
-        lambda a: pd.notna(a) and (int(a) in ALL_REV_ACCTS or _is_expense(int(a)))
-    )
+    # Drop rows with invalid dates/accounts before int conversion
+    df = df[df["EffDate"].notna() & df["Account"].notna()].copy()
+    if df.empty:
+        return df
+
+    df["Account"] = df["Account"].astype(int)
+
+    valid_mask = df["Account"].apply(lambda a: a in ALL_REV_ACCTS or _is_expense(a))
     df = df[valid_mask].copy()
 
     if df.empty:
@@ -202,21 +238,28 @@ def _normalize(df: pd.DataFrame, filename: str = "") -> pd.DataFrame:
 
     df["Period"] = df["EffDate"].dt.to_period("M").astype(str)
     df["Well"] = df["SubAcctDesc"].fillna("Unknown").astype(str).str.strip()
+
     df["SubAcctNum"] = (
-        df["SubAccount"].astype(str).str.strip().replace("", "Unknown").fillna("Unknown")
+        df["SubAccount"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .replace("", "Unknown")
     )
+
     df["AcqCode"] = df["AcqCode"].fillna("Unknown").astype(str).str.strip()
     df["AccountDesc"] = df["AccountDesc"].fillna("").astype(str).str.strip()
     df["Company"] = _extract_company(filename)
 
+    # Flip revenue signs, leave deductions/expenses as-is
     df["AmountAdj"] = np.where(df["Account"].isin(REV_ACCOUNTS), -df["Amount"], df["Amount"])
     df["QtyAdj"] = np.where(df["Account"].isin(REV_ACCOUNTS), -df["Quantity"], df["Quantity"])
 
     df["Bucket"] = df["Account"].apply(
-        lambda a: _expense_bucket(int(a)) if _is_expense(int(a)) else "Revenue"
+        lambda a: _expense_bucket(a) if _is_expense(a) else "Revenue"
     )
 
-    return df
+    return df.reset_index(drop=True)
 
 
 def _save_local(
@@ -228,7 +271,7 @@ def _save_local(
     wells: int,
 ) -> None:
     try:
-        DATA_DIR.mkdir(exist_ok=True)
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
         df.to_parquet(CACHE_FILE, index=False)
 
         meta = {"files": []}
@@ -236,10 +279,10 @@ def _save_local(
             try:
                 meta = json.loads(META_FILE.read_text())
             except Exception as e:
-                logger.warning(f"Failed to load existing metadata: {e}")
+                logger.warning("Failed to load existing metadata: %s", e)
                 meta = {"files": []}
 
-        existing_hashes = {f["hash"] for f in meta.get("files", [])}
+        existing_hashes = {f.get("hash") for f in meta.get("files", [])}
         if fhash not in existing_hashes:
             meta["files"].append(
                 {
@@ -253,10 +296,10 @@ def _save_local(
                 }
             )
             META_FILE.write_text(json.dumps(meta, indent=2))
-            logger.info(f"Saved metadata for {filename}. Total files: {len(meta['files'])}")
+            logger.info("Saved metadata for %s. Total files: %s", filename, len(meta["files"]))
 
     except Exception as e:
-        logger.error(f"Failed to save local cache: {e}")
+        logger.error("Failed to save local cache: %s", e)
 
 
 def ingest_file(uploaded_file) -> Dict:
@@ -269,6 +312,7 @@ def ingest_file(uploaded_file) -> Dict:
             return {"status": "duplicate"}
 
         ext = Path(uploaded_file.name).suffix.lower()
+
         try:
             if ext in (".xlsx", ".xls"):
                 raw = pd.read_excel(BytesIO(file_bytes))
@@ -291,23 +335,44 @@ def ingest_file(uploaded_file) -> Dict:
         periods = new_df["Period"].nunique()
         wells = new_df["Well"].nunique()
 
-        if ss["df"] is None:
+        if ss["df"] is None or ss["df"].empty:
             ss["df"] = new_df.reset_index(drop=True)
         else:
+            combined = pd.concat([ss["df"], new_df], ignore_index=True)
+
+            # Use a safer duplicate key so different companies/acq/subaccounts do not get collapsed
+            dedupe_cols = [
+                "Company",
+                "Period",
+                "Account",
+                "SubAcctNum",
+                "Well",
+                "AcqCode",
+                "Amount",
+                "Quantity",
+            ]
+            dedupe_cols = [c for c in dedupe_cols if c in combined.columns]
+
             ss["df"] = (
-                pd.concat([ss["df"], new_df], ignore_index=True)
-                .drop_duplicates(subset=["Period", "Account", "Well", "Amount"], keep="last")
+                combined
+                .drop_duplicates(subset=dedupe_cols, keep="last")
                 .reset_index(drop=True)
             )
 
         ss["file_hashes"].add(fhash)
         _save_local(ss["df"], fhash, uploaded_file.name, rows, periods, wells)
 
-        logger.info(f"Ingested {uploaded_file.name}: {rows} rows, {periods} periods, {wells} wells")
+        logger.info(
+            "Ingested %s: %s rows, %s periods, %s wells",
+            uploaded_file.name,
+            rows,
+            periods,
+            wells,
+        )
         return {"status": "ok", "rows": rows, "months": periods, "wells": wells}
 
     except Exception as e:
-        logger.error(f"Unexpected error in ingest_file: {e}")
+        logger.error("Unexpected error in ingest_file: %s", e)
         return {"status": "error", "message": f"Unexpected error: {str(e)}"}
 
 
@@ -324,7 +389,7 @@ def get_summary(df: Optional[pd.DataFrame]) -> pd.DataFrame:
         return pd.DataFrame()
 
     rows = []
-    for (well, period, acq), grp in rev.groupby(["Well", "Period", "AcqCode"]):
+    for (well, period, acq), grp in rev.groupby(["Well", "Period", "AcqCode"], dropna=False):
         r = {"Well": well, "Period": period, "AcqCode": acq}
 
         r["Oil_Gross"] = grp.loc[grp["Account"] == 9601, "AmountAdj"].sum()
@@ -369,7 +434,7 @@ def get_expense_summary(df: Optional[pd.DataFrame]) -> pd.DataFrame:
         return pd.DataFrame()
 
     rows = []
-    for (well, period, bucket), grp in exp.groupby(["Well", "Period", "Bucket"]):
+    for (well, period, bucket), grp in exp.groupby(["Well", "Period", "Bucket"], dropna=False):
         rows.append(
             {
                 "Well": well,
