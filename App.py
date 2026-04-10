@@ -454,7 +454,6 @@ def build_summary_and_expenses(dff: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Data
 # SIDEBAR & DATA FILTERING
 # =============================================================================
 def render_sidebar() -> Tuple[pd.DataFrame, list, list, list, Tuple[Optional[str], Optional[str]]]:
-    """Render sidebar controls and return filtered dataframe + selections."""
     with st.sidebar:
         st.markdown("""
         <div class="sidebar-brand">
@@ -465,11 +464,10 @@ def render_sidebar() -> Tuple[pd.DataFrame, list, list, list, Tuple[Optional[str
             </div>
         </div>
         """, unsafe_allow_html=True)
-        
-        # File upload
+
         st.markdown('<div class="sb-section">Data Ingestion</div>', unsafe_allow_html=True)
         uploaded = st.file_uploader("Upload GL export", type=["xlsx", "xls", "csv"], label_visibility="collapsed")
-        
+
         if uploaded is not None:
             try:
                 res = ingest_file(uploaded)
@@ -482,6 +480,87 @@ def render_sidebar() -> Tuple[pd.DataFrame, list, list, list, Tuple[Optional[str
                     st.error((res or {}).get("message", "Upload failed."))
             except Exception as exc:
                 st.error(f"Upload failed: {exc}")
+
+        # ── FIX: assign before checking ──
+        raw_result = load_and_prepare_data()
+        if raw_result[0] is None:
+            st.warning("No data loaded yet. Upload a GL export to begin.")
+            st.stop()
+
+        df, raw, _ = raw_result
+
+        st.markdown('<div class="sb-section">Loaded Files</div>', unsafe_allow_html=True)
+        meta_file = Path("data/uploaded_files.json")
+        if meta_file.exists():
+            try:
+                meta = json.loads(meta_file.read_text())
+                files_list = meta.get("files", [])
+                if files_list:
+                    st.markdown(f"**{len(files_list)} file(s) loaded:**")
+                    for i, file_info in enumerate(files_list):
+                        col1, col2 = st.columns([0.85, 0.15])
+                        with col1:
+                            st.caption(
+                                f"📄 {file_info['filename']}\n"
+                                f"Rows: {file_info.get('rows', 0):,} | Periods: {file_info.get('periods', 0)} | Wells: {file_info.get('wells', 0)}"
+                            )
+                        with col2:
+                            if st.button("✕", key=f"del_{i}"):
+                                meta["files"].pop(i)
+                                meta_file.write_text(json.dumps(meta, indent=2))
+                                st.success("File removed")
+                                st.rerun()
+                else:
+                    st.caption("No files loaded yet")
+            except Exception:
+                st.caption("No files loaded yet")
+
+        st.markdown('<div class="sb-section">Company Selection</div>', unsafe_allow_html=True)
+        available_companies = sorted(set(df["Company"].unique().tolist())) if "Company" in df.columns else ["Unknown"]
+        sel_companies = st.multiselect("Companies", options=available_companies, default=available_companies, label_visibility="collapsed")
+
+        st.markdown('<div class="sb-section">Portfolio Filter</div>', unsafe_allow_html=True)
+        valid_well_mask = (
+            df["Well"].notna()
+            & df["Well"].astype(str).str.strip().ne("")
+            & df["Well"].astype(str).str.strip().str.lower().ne("unknown")
+        )
+        well_map = df.loc[valid_well_mask, ["SubAcctNum", "Well"]].drop_duplicates().sort_values(["SubAcctNum", "Well"])
+        all_subaccts = sorted(well_map["SubAcctNum"].unique().tolist()) if not well_map.empty else []
+        all_wells = sorted(well_map["Well"].unique().tolist()) if not well_map.empty else []
+
+        sel_subaccts = st.multiselect("Sub accounts", options=all_subaccts, default=[], label_visibility="collapsed")
+        well_options = (
+            sorted(well_map.loc[well_map["SubAcctNum"].isin(sel_subaccts), "Well"].unique().tolist())
+            if sel_subaccts
+            else all_wells
+        )
+        sel_wells = st.multiselect("Wells", options=well_options, default=[], label_visibility="collapsed")
+
+        all_periods = period_sort(df["Period"].unique().tolist())
+        st.markdown('<div class="sb-section">Period Range</div>', unsafe_allow_html=True)
+
+        if len(all_periods) >= 2:
+            period_range = st.select_slider("Period range", options=all_periods, value=(all_periods[0], all_periods[-1]), label_visibility="collapsed")
+        elif len(all_periods) == 1:
+            period_range = (all_periods[0], all_periods[0])
+        else:
+            period_range = (None, None)
+
+        st.divider()
+        st.caption(f"{df['Period'].nunique()} periods loaded • {df['Well'].nunique()} wells in model")
+
+    dff = df.copy()
+    if sel_companies:
+        dff = dff[dff["Company"].isin(sel_companies)]
+    if sel_subaccts:
+        dff = dff[dff["SubAcctNum"].isin(sel_subaccts)]
+    if sel_wells:
+        dff = dff[dff["Well"].isin(sel_wells)]
+    if period_range[0] and period_range[1]:
+        dff = dff[(dff["Period"] >= period_range[0]) & (dff["Period"] <= period_range[1])]
+
+    return dff, df, sel_companies, sel_wells, period_range
         
         # Load data
     if raw_result[0] is None or len(raw_result[0]) == 0:
