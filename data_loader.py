@@ -114,7 +114,12 @@ def _hash_file(file_bytes: bytes) -> str:
 def _ss() -> Dict:
     """Initialize and return session state."""
     if "gl_app" not in st.session_state:
-        st.session_state["gl_app"] = {"df": None, "file_hashes": set(), "load_errors": []}
+        st.session_state["gl_app"] = {
+            "df": None,
+            "file_hashes": set(),
+            "load_errors": [],
+            "files_metadata": []
+        }
         try:
             if CACHE_FILE.exists():
                 cached = pd.read_parquet(CACHE_FILE)
@@ -124,7 +129,10 @@ def _ss() -> Dict:
 
             if META_FILE.exists():
                 meta = json.loads(META_FILE.read_text())
-                st.session_state["gl_app"]["file_hashes"] = {f["hash"] for f in meta.get("files", [])}
+                file_list = meta.get("files", [])
+                st.session_state["gl_app"]["file_hashes"] = {f["hash"] for f in file_list}
+                st.session_state["gl_app"]["files_metadata"] = file_list
+                logger.info(f"Loaded metadata for {len(file_list)} files")
         except Exception as e:
             logger.warning(f"Failed to load cache: {e}")
 
@@ -271,7 +279,7 @@ def ingest_file(uploaded_file) -> Dict:
         periods = new_df["Period"].nunique()
         wells = new_df["Well"].nunique()
 
-        # Merge with existing data
+        # Merge with existing data (APPEND, not replace)
         if ss["df"] is None:
             ss["df"] = new_df.reset_index(drop=True)
         else:
@@ -302,24 +310,35 @@ def _save_local(
         DATA_DIR.mkdir(exist_ok=True)
         df.to_parquet(CACHE_FILE, index=False)
 
+        # Load existing metadata or create new
         meta = {"files": []}
         if META_FILE.exists():
-            meta = json.loads(META_FILE.read_text())
+            try:
+                meta = json.loads(META_FILE.read_text())
+            except Exception as e:
+                logger.warning(f"Failed to load existing metadata: {e}")
+                meta = {"files": []}
 
-        company = _extract_company(filename)
-        meta["files"].append(
-            {
-                "hash": fhash,
-                "filename": filename,
-                "company": company,
-                "loaded_at": datetime.now().isoformat(),
-                "rows": rows,
-                "periods": periods,
-                "wells": wells,
-            }
-        )
-        META_FILE.write_text(json.dumps(meta, indent=2))
-        logger.info(f"Saved cache and metadata to {DATA_DIR}")
+        # Check if file already exists in metadata (don't duplicate)
+        existing_hashes = {f["hash"] for f in meta.get("files", [])}
+        if fhash not in existing_hashes:
+            company = _extract_company(filename)
+            meta["files"].append(
+                {
+                    "hash": fhash,
+                    "filename": filename,
+                    "company": company,
+                    "loaded_at": datetime.now().isoformat(),
+                    "rows": rows,
+                    "periods": periods,
+                    "wells": wells,
+                }
+            )
+            META_FILE.write_text(json.dumps(meta, indent=2))
+            logger.info(f"Saved metadata for {filename}. Total files: {len(meta['files'])}")
+        else:
+            logger.info(f"File {filename} already in metadata, skipping duplicate entry")
+
     except Exception as e:
         logger.error(f"Failed to save local cache: {e}")
 
