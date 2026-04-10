@@ -37,13 +37,9 @@ def _extract_company(filename):
         return "FAEII"
     return "Unknown"
     if acct in IGNORE_ACCTS:
-        return False
-    return (
-        LOE_RANGE[0]       <= acct <= LOE_RANGE[1]       or
-        LEASEHOLD_RANGE[0] <= acct <= LEASEHOLD_RANGE[1] or
-        CAPITAL_RANGE[0]   <= acct <= CAPITAL_RANGE[1]   or
-        WORKOVER_RANGE[0]  <= acct <= WORKOVER_RANGE[1]
-    )
+        if acct in IGNORE_ACCTS:
+       return False
+   return (LOE_RANGE[0] <= acct <= LOE_RANGE[1] or ...)
 
 def _expense_bucket(acct):
     if LOE_RANGE[0]       <= acct <= LOE_RANGE[1]:       return "LOE"
